@@ -10,6 +10,7 @@
 #ifdef HW_HAS_LORA
 
 #include "SX1278_hw.h"
+#include "hwconf/hal_gpio.h"
 
 static void spi_transfer(uint8_t *in_buf, const uint8_t *out_buf, int length);
 static void spi_delay(void);
@@ -17,18 +18,18 @@ static void spi_delay(void);
 
 void SX1278_hw_init() {
 	SX1278_hw_SetNSS(0);
-	palSetPad(HW_LORA_SPI_PORT_RESET, HW_LORA_SPI_PIN_RESET);
+	hal_gpio_set(HW_LORA_SPI_PORT_RESET, HW_LORA_SPI_PIN_RESET);
 }
 
 void SX1278_hw_SetNSS(int value) {
-	palWritePad(HW_LORA_SPI_PORT_NSS, HW_LORA_SPI_PIN_NSS, value);
+	hal_gpio_write(HW_LORA_SPI_PORT_NSS, HW_LORA_SPI_PIN_NSS, value);
 }
 
 void SX1278_hw_Reset() {
 	SX1278_hw_SetNSS(1);
-	palClearPad(HW_LORA_SPI_PORT_RESET, HW_LORA_SPI_PIN_RESET);
+	hal_gpio_clear(HW_LORA_SPI_PORT_RESET, HW_LORA_SPI_PIN_RESET);
 	SX1278_hw_DelayMs(1);
-	palSetPad(HW_LORA_SPI_PORT_RESET, HW_LORA_SPI_PIN_RESET);
+	hal_gpio_set(HW_LORA_SPI_PORT_RESET, HW_LORA_SPI_PIN_RESET);
 	SX1278_hw_DelayMs(100);
 }
 
@@ -51,7 +52,7 @@ void SX1278_hw_DelayMs(uint32_t msec) {
 }
 
 int SX1278_hw_GetDIO0() {
-	return (palReadPad(HW_LORA_SPI_PORT_DIO0,HW_LORA_SPI_PIN_DIO0));
+	return (hal_gpio_read(HW_LORA_SPI_PORT_DIO0,HW_LORA_SPI_PIN_DIO0));
 }
 
 
@@ -63,27 +64,27 @@ static void spi_transfer(uint8_t *in_buf, const uint8_t *out_buf, int length) {
 		uint8_t receive = 0;
 
 		for (int bit = 0;bit < 8;bit++) {
-			palWritePad(HW_LORA_SPI_PORT_MOSI, HW_LORA_SPI_PIN_MOSI, send >> 7);
+			hal_gpio_write(HW_LORA_SPI_PORT_MOSI, HW_LORA_SPI_PIN_MOSI, send >> 7);
 			send <<= 1;
 
-			palSetPad(HW_LORA_SPI_PORT_SCK, HW_LORA_SPI_PIN_SCK);
+			hal_gpio_set(HW_LORA_SPI_PORT_SCK, HW_LORA_SPI_PIN_SCK);
 			spi_delay();
 
 			int samples = 0;
-			samples += palReadPad(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
+			samples += hal_gpio_read(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
 			__NOP();
-			samples += palReadPad(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
+			samples += hal_gpio_read(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
 			__NOP();
-			samples += palReadPad(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
+			samples += hal_gpio_read(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
 			__NOP();
-			samples += palReadPad(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
+			samples += hal_gpio_read(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
 			__NOP();
-			samples += palReadPad(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
+			samples += hal_gpio_read(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
 			receive <<= 1;
 			if (samples > 2) {
 				receive |= 1;
 			}
-			palClearPad(HW_LORA_SPI_PORT_SCK, HW_LORA_SPI_PIN_SCK);
+			hal_gpio_clear(HW_LORA_SPI_PORT_SCK, HW_LORA_SPI_PIN_SCK);
 			spi_delay();
 		}
 		if (in_buf) {

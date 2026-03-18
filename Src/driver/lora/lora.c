@@ -34,6 +34,7 @@
 #include <string.h>
 #include "SX1278.h"
 #include "stdio.h"
+#include "hwconf/hal_gpio.h"
 
 // Threads
 static THD_FUNCTION(packet_process_thread, arg);
@@ -72,12 +73,12 @@ static void send_packet(unsigned char* data, unsigned int len) {
 void lora_init(void) {
 	packet_init(send_packet, process_packet, &packet_state);
 
-	palSetPadMode(HW_LORA_SPI_PORT_SCK, HW_LORA_SPI_PIN_SCK, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO, PAL_MODE_INPUT);
-	palSetPadMode(HW_LORA_SPI_PORT_NSS, HW_LORA_SPI_PIN_NSS, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(HW_LORA_SPI_PORT_MOSI, HW_LORA_SPI_PIN_MOSI, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(HW_LORA_SPI_PORT_DIO0, HW_LORA_SPI_PIN_DIO0, PAL_MODE_INPUT);
-	palSetPadMode(HW_LORA_SPI_PORT_RESET, HW_LORA_SPI_PIN_RESET, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
+	hal_gpio_init_output(HW_LORA_SPI_PORT_SCK, HW_LORA_SPI_PIN_SCK);
+	hal_gpio_init_input(HW_LORA_SPI_PORT_MISO, HW_LORA_SPI_PIN_MISO);
+	hal_gpio_init_output(HW_LORA_SPI_PORT_NSS, HW_LORA_SPI_PIN_NSS);
+	hal_gpio_init_output(HW_LORA_SPI_PORT_MOSI, HW_LORA_SPI_PIN_MOSI);
+	hal_gpio_init_input(HW_LORA_SPI_PORT_DIO0, HW_LORA_SPI_PIN_DIO0);
+	hal_gpio_init_output(HW_LORA_SPI_PORT_RESET, HW_LORA_SPI_PIN_RESET);
 	SX1278_init(&SX1278, 868000000, SX1278_POWER_17DBM, SX1278_LORA_SF_7, SX1278_LORA_BW_250KHZ, SX1278_LORA_CR_4_5, SX1278_LORA_CRC_DIS, 10);
 	if (!thread_is_running) {
 		chThdCreateStatic(packet_process_thread_wa, sizeof(packet_process_thread_wa), NORMALPRIO, packet_process_thread, NULL);

@@ -26,6 +26,7 @@
 #include "mc_interface.h"
 #include "utils_math.h"
 #include "utils_sys.h"
+#include "hwconf/hal_gpio.h"
 
 #include <string.h>
 #include <math.h>
@@ -58,9 +59,9 @@ void enc_ts5700n8501_deinit(TS5700N8501_config_t *cfg) {
 		chThdSleepMilliseconds(1);
 	}
 
-	palSetPadMode(cfg->TX_gpio, cfg->TX_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(cfg->RX_gpio, cfg->RX_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(cfg->EXT_gpio, cfg->EXT_pin, PAL_MODE_INPUT_ANALOG);
+	hal_gpio_init_input_pullup(cfg->TX_gpio, cfg->TX_pin);
+	hal_gpio_init_input_pullup(cfg->RX_gpio, cfg->RX_pin);
+	hal_gpio_init_input_analog(cfg->EXT_gpio, cfg->EXT_pin);
 
 	cfg->state.last_enc_angle = 0.0;
 	cfg->state.spi_error_rate = 0.0;
@@ -94,9 +95,9 @@ static void TS5700N8501_send_byte(TS5700N8501_config_t *cfg, uint8_t b) {
 
 	utils_sys_lock_cnt();
 
-	palSetPad(ext_io, ext_pin);
+	hal_gpio_set(ext_io, ext_pin);
 	TS5700N8501_delay_uart();
-	palWritePad(tx_io, tx_pin, 0);
+	hal_gpio_write(tx_io, tx_pin, 0);
 
 	__NOP(); __NOP(); __NOP();
 	__NOP(); __NOP(); __NOP();
@@ -105,7 +106,7 @@ static void TS5700N8501_send_byte(TS5700N8501_config_t *cfg, uint8_t b) {
 	__NOP(); __NOP(); __NOP();
 
 	for (int i = 0; i < 8; i++) {
-		palWritePad(tx_io, tx_pin, (b & (0x80 >> i)) ? PAL_HIGH : PAL_LOW);
+		hal_gpio_write(tx_io, tx_pin, (b & (0x80 >> i)) ? 1 : 0);
 		TS5700N8501_delay_uart();
 	}
 
@@ -116,9 +117,9 @@ static void TS5700N8501_send_byte(TS5700N8501_config_t *cfg, uint8_t b) {
 	__NOP(); __NOP(); __NOP();
 	__NOP(); __NOP(); __NOP();
 
-	palWritePad(tx_io, tx_pin, 1);
+	hal_gpio_write(tx_io, tx_pin, 1);
 	TS5700N8501_delay_uart();
-	palClearPad(ext_io, ext_pin);
+	hal_gpio_clear(ext_io, ext_pin);
 	utils_sys_unlock_cnt();
 }
 
@@ -130,12 +131,9 @@ static THD_FUNCTION(ts5700n8501_thread, arg) {
 	chRegSetThreadName("TS5700N8501");
 
 	sdStart(cfg->sd, &cfg->uart_param);
-	palSetPadMode(cfg->TX_gpio, cfg->TX_pin,
-			PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST | PAL_STM32_PUDR_PULLUP);
-	palSetPadMode(cfg->RX_gpio, cfg->RX_pin,
-			PAL_MODE_ALTERNATE(cfg->sd_af) | PAL_STM32_OSPEED_HIGHEST | PAL_STM32_PUDR_PULLUP);
-	palSetPadMode(cfg->EXT_gpio, cfg->EXT_pin, PAL_MODE_OUTPUT_PUSHPULL |
-			PAL_STM32_OSPEED_HIGHEST | PAL_STM32_PUDR_PULLUP);
+	hal_gpio_init_output(cfg->TX_gpio, cfg->TX_pin);
+	hal_gpio_init_af(cfg->RX_gpio, cfg->RX_pin, cfg->sd_af);
+	hal_gpio_init_output(cfg->EXT_gpio, cfg->EXT_pin);
 
 	for (;;) {
 		// Check if it is time to stop.

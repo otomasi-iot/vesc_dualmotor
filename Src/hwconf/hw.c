@@ -20,6 +20,7 @@
 #include "conf_general.h"
 #include "utils_math.h"
 #include <math.h>
+#include "hwconf/hal_gpio.h"
 
 #ifdef HW_SOURCE_ALT
 #include HW_SOURCE_ALT
@@ -52,16 +53,16 @@ uint8_t hw_id_from_pins(void) {
 	uint8_t id = 1u; //Start at 1
 	for (uint8_t i=0; i<hw_id_pins_size; i++) {
 		//Initialize pulldown
-		palSetPadMode(hw_id_ports[i], hw_id_pins[i], PAL_MODE_INPUT_PULLDOWN);
+		hal_gpio_init_input_pulldown(hw_id_ports[i], hw_id_pins[i]);
 		
 		//Delay a little for the resistor to take affect
 		chThdSleepMilliseconds(DELAY_MS);
-		bool pin_set_pulldown = (palReadPad(hw_id_ports[i], hw_id_pins[i]));
+		bool pin_set_pulldown = (hal_gpio_read(hw_id_ports[i], hw_id_pins[i]));
 		//Initialize pullup
-		palSetPadMode(hw_id_ports[i], hw_id_pins[i], PAL_MODE_INPUT_PULLUP);
+		hal_gpio_init_input_pullup(hw_id_ports[i], hw_id_pins[i]);
 		//Delay a little for the resistor to take affect
 		chThdSleepMilliseconds(DELAY_MS);
-		bool pin_set_pullup = (palReadPad(hw_id_ports[i], hw_id_pins[i]));
+		bool pin_set_pullup = (hal_gpio_read(hw_id_ports[i], hw_id_pins[i]));
 		//Now determine the trit state
 		if (!pin_set_pulldown && !pin_set_pullup) {
 			//Tied to GND
@@ -78,7 +79,7 @@ uint8_t hw_id_from_pins(void) {
 			trits[i] = 3u;
 		}
 		id += trits[i] * pow(3, i); 
-		palSetPadMode(hw_id_ports[i], hw_id_pins[i], PAL_MODE_INPUT);
+		hal_gpio_init_input(hw_id_ports[i], hw_id_pins[i]);
 	}
 	return id;
 }

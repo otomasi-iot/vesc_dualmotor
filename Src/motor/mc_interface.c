@@ -31,6 +31,7 @@
 #include "utils_sys.h"
 #include "ch.h"
 #include "hal.h"
+#include "hwconf/hal_gpio.h"
 #include "commands.h"
 #include "encoder/encoder.h"
 #include "buffer.h"
@@ -1990,8 +1991,8 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 	if (TIM_GetFlagStatus(TIM1, TIM_FLAG_Break) != RESET) {
 		mc_interface_fault_stop(FAULT_CODE_BRK, is_second_motor, true);
 		// latch the BRK/FAULT pin to low until next MCU reset
-		palSetPadMode(BRK_GPIO, BRK_PIN, PAL_MODE_OUTPUT_PUSHPULL);
-		palClearPad(BRK_GPIO, BRK_PIN);
+		hal_gpio_init_output(BRK_GPIO, BRK_PIN);
+		hal_gpio_clear(BRK_GPIO, BRK_PIN);
 	}
 #endif
 

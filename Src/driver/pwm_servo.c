@@ -22,6 +22,7 @@
 #include "hal.h"
 #include "conf_general.h"
 #include "utils.h"
+#include "hwconf/hal_gpio.h"
 
 #pragma GCC optimize ("Os")
 
@@ -35,8 +36,7 @@ uint32_t pwm_servo_init(uint32_t freq_hz, float duty) {
 	// Ensure that there is no overflow and that the resolution is reasonable
 	utils_truncate_number_uint32(&freq_hz, TIM_CLOCK / 65000, TIM_CLOCK / 100);
 
-	palSetPadMode(HW_ICU_GPIO, HW_ICU_PIN, PAL_MODE_ALTERNATE(HW_ICU_GPIO_AF) |
-			PAL_STM32_OSPEED_HIGHEST | PAL_STM32_PUDR_FLOATING);
+	hal_gpio_init_af(HW_ICU_GPIO, HW_ICU_PIN, HW_ICU_GPIO_AF);
 
 	HW_ICU_TIM_CLK_EN();
 
@@ -75,7 +75,7 @@ void pwm_servo_init_servo(void) {
 
 void pwm_servo_stop(void) {
 	if (m_is_running) {
-		palSetPadMode(HW_ICU_GPIO, HW_ICU_PIN, PAL_MODE_INPUT);
+		hal_gpio_init_input(HW_ICU_GPIO, HW_ICU_PIN);
 		TIM_DeInit(HW_ICU_TIMER);
 	}
 

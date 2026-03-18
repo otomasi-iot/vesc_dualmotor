@@ -11,6 +11,7 @@
 #include <math.h>
 #include "isr_vector_table.h"
 #include "stdlib.h"
+#include "hwconf/hal_gpio.h"
 
 #define SPEED_STEP	0.05
 #define SPEED_MAX	1.00
@@ -55,7 +56,7 @@ void app_custom_start(void) {
 
 	stop_now = false;
     //Config GPIO
-	palSetPadMode(HW_HALL_TRIGGER_GPIO, HW_HALL_TRIGGER_PIN, PAL_MODE_INPUT_PULLUP);
+	hal_gpio_init_input_pullup(HW_HALL_TRIGGER_GPIO, HW_HALL_TRIGGER_PIN);
 
 	// Start the dv thread
 	chThdCreateStatic(dpv_thread_wa, sizeof(dpv_thread_wa), NORMALPRIO, dpv_thread, NULL);
@@ -125,7 +126,7 @@ static THD_FUNCTION(dpv_thread, arg) {
         static systime_t last_time = 0;
         static float motorSpeed_val_ramp = 0.0;
 	float ramp_time; 
-	if ( ! palReadPad(HW_HALL_TRIGGER_GPIO, HW_HALL_TRIGGER_PIN)) {
+	if ( ! hal_gpio_read(HW_HALL_TRIGGER_GPIO, HW_HALL_TRIGGER_PIN)) {
 		motorSpeed=targetSpeed;
 	} else {
 		motorSpeed=SPEED_OFF;

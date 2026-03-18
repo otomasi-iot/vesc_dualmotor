@@ -20,6 +20,7 @@
 #include "spi_sw.h"
 #include "utils_math.h"
 #include <stdbool.h>
+#include "hwconf/hal_gpio.h"
 
 // Private variables
 static bool m_init_done = false;
@@ -37,22 +38,22 @@ static void spi_sw_delay(void);
 
 void spi_sw_init(void) {
 	if (!m_init_done) {
-		palSetPadMode(m_port_miso, m_pin_miso, PAL_MODE_INPUT);
-		palSetPadMode(m_port_csn, m_pin_csn, PAL_MODE_OUTPUT_PUSHPULL);
-		palSetPadMode(m_port_sck, m_pin_sck, PAL_MODE_OUTPUT_PUSHPULL);
-		palSetPadMode(m_port_mosi, m_pin_mosi, PAL_MODE_OUTPUT_PUSHPULL);
+		hal_gpio_init_input(m_port_miso, m_pin_miso);
+		hal_gpio_init_output(m_port_csn, m_pin_csn);
+		hal_gpio_init_output(m_port_sck, m_pin_sck);
+		hal_gpio_init_output(m_port_mosi, m_pin_mosi);
 
-		palSetPad(m_port_csn, m_pin_csn);
-		palClearPad(m_port_sck, m_pin_sck);
+		hal_gpio_set(m_port_csn, m_pin_csn);
+		hal_gpio_clear(m_port_sck, m_pin_sck);
 		m_init_done = true;
 	}
 }
 
 void spi_sw_stop(void) {
-	palSetPadMode(m_port_miso, m_pin_miso, PAL_MODE_INPUT);
-	palSetPadMode(m_port_csn, m_pin_csn, PAL_MODE_INPUT);
-	palSetPadMode(m_port_sck, m_pin_sck, PAL_MODE_INPUT);
-	palSetPadMode(m_port_mosi, m_pin_mosi, PAL_MODE_INPUT);
+	hal_gpio_init_input(m_port_miso, m_pin_miso);
+	hal_gpio_init_input(m_port_csn, m_pin_csn);
+	hal_gpio_init_input(m_port_sck, m_pin_sck);
+	hal_gpio_init_input(m_port_mosi, m_pin_mosi);
 	m_init_done = false;
 }
 
@@ -83,7 +84,7 @@ void spi_sw_change_pins(
 }
 
 void spi_sw_transfer(char *in_buf, const char *out_buf, int length) {
-	palClearPad(m_port_sck, m_pin_sck);
+	hal_gpio_clear(m_port_sck, m_pin_sck);
 	spi_sw_delay();
 
 	for (int i = 0;i < length;i++) {
@@ -91,26 +92,26 @@ void spi_sw_transfer(char *in_buf, const char *out_buf, int length) {
 		unsigned char recieve = 0;
 
 		for (int bit=0;bit < 8;bit++) {
-			palWritePad(m_port_mosi, m_pin_mosi, send >> 7);
+			hal_gpio_write(m_port_mosi, m_pin_mosi, send >> 7);
 			send <<= 1;
 
 			spi_sw_delay();
 
 			int r1, r2, r3;
-			r1 = palReadPad(m_port_miso, m_pin_miso);
+			r1 = hal_gpio_read(m_port_miso, m_pin_miso);
 			__NOP();
-			r2 = palReadPad(m_port_miso, m_pin_miso);
+			r2 = hal_gpio_read(m_port_miso, m_pin_miso);
 			__NOP();
-			r3 = palReadPad(m_port_miso, m_pin_miso);
+			r3 = hal_gpio_read(m_port_miso, m_pin_miso);
 
 			recieve <<= 1;
 			if (utils_middle_of_3_int(r1, r2, r3)) {
 				recieve |= 1;
 			}
 
-			palSetPad(m_port_sck, m_pin_sck);
+			hal_gpio_set(m_port_sck, m_pin_sck);
 			spi_sw_delay();
-			palClearPad(m_port_sck, m_pin_sck);
+			hal_gpio_clear(m_port_sck, m_pin_sck);
 		}
 
 		if (in_buf) {
@@ -120,13 +121,13 @@ void spi_sw_transfer(char *in_buf, const char *out_buf, int length) {
 }
 
 void spi_sw_begin(void) {
-	palClearPad(m_port_csn, m_pin_csn);
+	hal_gpio_clear(m_port_csn, m_pin_csn);
 	spi_sw_delay();
 }
 
 void spi_sw_end(void) {
 	spi_sw_delay();
-	palSetPad(m_port_csn, m_pin_csn);
+	hal_gpio_set(m_port_csn, m_pin_csn);
 }
 
 static void spi_sw_delay(void) {

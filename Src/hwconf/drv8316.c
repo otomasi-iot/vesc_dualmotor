@@ -30,6 +30,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "mc_interface.h"
+#include "hwconf/hal_gpio.h"
 
 // Private functions
 static uint16_t spi_exchange(uint16_t x);
@@ -52,12 +53,12 @@ void drv8316_init(void)
 	chMtxObjectInit(&m_spi_mutex);
 
 	// Initialise DRV8316 SPI
-	palSetPadMode(DRV8316_MISO_GPIO, DRV8316_MISO_PIN, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(DRV8316_SCK_GPIO, DRV8316_SCK_PIN, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(DRV8316_CS_GPIO, DRV8316_CS_PIN, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(DRV8316_MOSI_GPIO, DRV8316_MOSI_PIN, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
+	hal_gpio_init_input_pullup(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
+	hal_gpio_init_output(DRV8316_SCK_GPIO, DRV8316_SCK_PIN);
+	hal_gpio_init_output(DRV8316_CS_GPIO, DRV8316_CS_PIN);
+	hal_gpio_init_output(DRV8316_MOSI_GPIO, DRV8316_MOSI_PIN);
 
-	palSetPad(DRV8316_CS_GPIO, DRV8316_CS_PIN); // Chip select rests high
+	hal_gpio_set(DRV8316_CS_GPIO, DRV8316_CS_PIN); // Chip select rests high
 
 	chThdSleepMilliseconds(100);
 
@@ -317,24 +318,24 @@ static void spi_transfer(uint16_t *in_buf, const uint16_t *out_buf, int length)
 
 		for (int bit = 0; bit < 16; bit++)
 		{
-			palWritePad(DRV8316_MOSI_GPIO, DRV8316_MOSI_PIN, send >> 15);
+			hal_gpio_write(DRV8316_MOSI_GPIO, DRV8316_MOSI_PIN, send >> 15);
 			send <<= 1;
 
-			palSetPad(DRV8316_SCK_GPIO, DRV8316_SCK_PIN);
+			hal_gpio_set(DRV8316_SCK_GPIO, DRV8316_SCK_PIN);
 			spi_delay();
 
-			palClearPad(DRV8316_SCK_GPIO, DRV8316_SCK_PIN);
+			hal_gpio_clear(DRV8316_SCK_GPIO, DRV8316_SCK_PIN);
 
 			int samples = 0;
-			samples += palReadPad(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
+			samples += hal_gpio_read(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
 			__NOP();
-			samples += palReadPad(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
+			samples += hal_gpio_read(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
 			__NOP();
-			samples += palReadPad(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
+			samples += hal_gpio_read(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
 			__NOP();
-			samples += palReadPad(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
+			samples += hal_gpio_read(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
 			__NOP();
-			samples += palReadPad(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
+			samples += hal_gpio_read(DRV8316_MISO_GPIO, DRV8316_MISO_PIN);
 
 			receive <<= 1;
 			if (samples > 2)
@@ -358,14 +359,14 @@ static void spi_begin(void)
 #ifdef DRV8316_CS_GPIO2
 	if (mc_interface_motor_now() == 2)
 	{
-		palClearPad(DRV8316_CS_GPIO2, DRV8316_CS_PIN2);
+		hal_gpio_clear(DRV8316_CS_GPIO2, DRV8316_CS_PIN2);
 	}
 	else
 	{
-		palClearPad(DRV8316_CS_GPIO, DRV8316_CS_PIN);
+		hal_gpio_clear(DRV8316_CS_GPIO, DRV8316_CS_PIN);
 	}
 #else
-	palClearPad(DRV8316_CS_GPIO, DRV8316_CS_PIN);
+	hal_gpio_clear(DRV8316_CS_GPIO, DRV8316_CS_PIN);
 #endif
 	spi_delay();
 }
@@ -377,14 +378,14 @@ static void spi_end(void)
 #ifdef DRV8316_CS_GPIO2
 	if (mc_interface_motor_now() == 2)
 	{
-		palSetPad(DRV8316_CS_GPIO2, DRV8316_CS_PIN2);
+		hal_gpio_set(DRV8316_CS_GPIO2, DRV8316_CS_PIN2);
 	}
 	else
 	{
-		palSetPad(DRV8316_CS_GPIO, DRV8316_CS_PIN);
+		hal_gpio_set(DRV8316_CS_GPIO, DRV8316_CS_PIN);
 	}
 #else
-	palSetPad(DRV8316_CS_GPIO, DRV8316_CS_PIN);
+	hal_gpio_set(DRV8316_CS_GPIO, DRV8316_CS_PIN);
 #endif
 	spi_delay();
 }

@@ -22,6 +22,7 @@
 #include "flash_helper.h"
 #include "ch.h"
 #include "hal.h"
+#include "hwconf/hal_gpio.h"
 #include "stm32f4xx_conf.h"
 #include "utils_sys.h"
 #include "mc_interface.h"
@@ -262,8 +263,8 @@ void flash_helper_jump_to_bootloader(void) {
 	usbStop(&USBD1);
 
 	sdStop(&HW_UART_DEV);
-	palSetPadMode(HW_UART_TX_PORT, HW_UART_TX_PIN, PAL_MODE_INPUT);
-	palSetPadMode(HW_UART_RX_PORT, HW_UART_RX_PIN, PAL_MODE_INPUT);
+	hal_gpio_init_input(HW_UART_TX_PORT, HW_UART_TX_PIN);
+	hal_gpio_init_input(HW_UART_RX_PORT, HW_UART_RX_PIN);
 
 	// Disable watchdog
 	timeout_configure_IWDT_slowest();

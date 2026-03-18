@@ -29,6 +29,7 @@
 #include "commands.h"
 #include <string.h>
 #include <stdio.h>
+#include "hwconf/hal_gpio.h"
 
 // Private functions
 static uint16_t spi_exchange(uint16_t x);
@@ -47,11 +48,11 @@ void drv8305_init(void) {
 	chMtxObjectInit(&m_spi_mutex);
 
 	// DRV8305 SPI
-	palSetPadMode(DRV8305_MISO_GPIO, DRV8305_MISO_PIN, PAL_MODE_INPUT);
-	palSetPadMode(DRV8305_SCK_GPIO, DRV8305_SCK_PIN, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(DRV8305_CS_GPIO, DRV8305_CS_PIN, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(DRV8305_MOSI_GPIO, DRV8305_MOSI_PIN, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPad(DRV8305_MOSI_GPIO, DRV8305_MOSI_PIN);
+	hal_gpio_init_input(DRV8305_MISO_GPIO, DRV8305_MISO_PIN);
+	hal_gpio_init_output(DRV8305_SCK_GPIO, DRV8305_SCK_PIN);
+	hal_gpio_init_output(DRV8305_CS_GPIO, DRV8305_CS_PIN);
+	hal_gpio_init_output(DRV8305_MOSI_GPIO, DRV8305_MOSI_PIN);
+	hal_gpio_set(DRV8305_MOSI_GPIO, DRV8305_MOSI_PIN);
 
 	chThdSleepMilliseconds(100);
 
@@ -210,20 +211,20 @@ static void spi_transfer(uint16_t *in_buf, const uint16_t *out_buf, int length) 
 		uint16_t recieve = 0;
 
 		for (int bit = 0;bit < 16;bit++) {
-			palWritePad(DRV8305_MOSI_GPIO, DRV8305_MOSI_PIN, send >> 15);
+			hal_gpio_write(DRV8305_MOSI_GPIO, DRV8305_MOSI_PIN, send >> 15);
 			send <<= 1;
 
-			palSetPad(DRV8305_SCK_GPIO, DRV8305_SCK_PIN);
+			hal_gpio_set(DRV8305_SCK_GPIO, DRV8305_SCK_PIN);
 			spi_delay();
 
-			palClearPad(DRV8305_SCK_GPIO, DRV8305_SCK_PIN);
+			hal_gpio_clear(DRV8305_SCK_GPIO, DRV8305_SCK_PIN);
 
 			int r1, r2, r3;
-			r1 = palReadPad(DRV8305_MISO_GPIO, DRV8305_MISO_PIN);
+			r1 = hal_gpio_read(DRV8305_MISO_GPIO, DRV8305_MISO_PIN);
 			__NOP();
-			r2 = palReadPad(DRV8305_MISO_GPIO, DRV8305_MISO_PIN);
+			r2 = hal_gpio_read(DRV8305_MISO_GPIO, DRV8305_MISO_PIN);
 			__NOP();
-			r3 = palReadPad(DRV8305_MISO_GPIO, DRV8305_MISO_PIN);
+			r3 = hal_gpio_read(DRV8305_MISO_GPIO, DRV8305_MISO_PIN);
 
 			recieve <<= 1;
 			if (utils_middle_of_3_int(r1, r2, r3)) {
@@ -240,11 +241,11 @@ static void spi_transfer(uint16_t *in_buf, const uint16_t *out_buf, int length) 
 }
 
 static void spi_begin(void) {
-	palClearPad(DRV8305_CS_GPIO, DRV8305_CS_PIN);
+	hal_gpio_clear(DRV8305_CS_GPIO, DRV8305_CS_PIN);
 }
 
 static void spi_end(void) {
-	palSetPad(DRV8305_CS_GPIO, DRV8305_CS_PIN);
+	hal_gpio_set(DRV8305_CS_GPIO, DRV8305_CS_PIN);
 }
 
 static void spi_delay(void) {

@@ -29,6 +29,7 @@
 #include "utils_math.h"
 #include "spi_bb.h"
 #include "timer.h"
+#include "hwconf/hal_gpio.h"
 
 #include <string.h>
 #include <math.h>
@@ -40,13 +41,13 @@ bool enc_ad2s1205_init(AD2S1205_config_t *cfg) {
 
 	// TODO: Choose pins on comm port when these are not defined
 #if defined(AD2S1205_SAMPLE_GPIO)
-	palSetPadMode(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPad(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);	// Prepare for a falling edge SAMPLE assertion
+	hal_gpio_init_output(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);
+	hal_gpio_set(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);	// Prepare for a falling edge SAMPLE assertion
 #endif
 
 #if defined(AD2S1205_RDVEL_GPIO)
-	palSetPadMode(AD2S1205_RDVEL_GPIO, AD2S1205_RDVEL_PIN, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPad(AD2S1205_RDVEL_GPIO, AD2S1205_RDVEL_PIN);		// Will always read position
+	hal_gpio_init_output(AD2S1205_RDVEL_GPIO, AD2S1205_RDVEL_PIN);
+	hal_gpio_set(AD2S1205_RDVEL_GPIO, AD2S1205_RDVEL_PIN);		// Will always read position
 #endif
 
 	return true;
@@ -56,10 +57,10 @@ void enc_ad2s1205_deinit(AD2S1205_config_t *cfg) {
 	spi_bb_deinit(&(cfg->sw_spi));
 
 #if defined(AD2S1205_SAMPLE_GPIO)
-	palSetPadMode(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN, PAL_MODE_INPUT_PULLUP);	// Prepare for a falling edge SAMPLE assertion
+	hal_gpio_init_input_pullup(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);	// Prepare for a falling edge SAMPLE assertion
 #endif
 #if defined(AD2S1205_RDVEL_GPIO)
-	palSetPadMode(AD2S1205_RDVEL_GPIO, AD2S1205_RDVEL_PIN, PAL_MODE_INPUT_PULLUP);	// Will always read position
+	hal_gpio_init_input_pullup(AD2S1205_RDVEL_GPIO, AD2S1205_RDVEL_PIN);	// Will always read position
 #endif
 }
 
@@ -74,10 +75,10 @@ void enc_ad2s1205_routine(AD2S1205_config_t *cfg) {
 
 	// SAMPLE signal should have been be asserted in sync with ADC sampling
 #ifdef AD2S1205_RDVEL_GPIO
-	palSetPad(AD2S1205_RDVEL_GPIO, AD2S1205_RDVEL_PIN);	// Always read position
+	hal_gpio_set(AD2S1205_RDVEL_GPIO, AD2S1205_RDVEL_PIN);	// Always read position
 #endif
 
-	palSetPad(cfg->sw_spi.sck_gpio, cfg->sw_spi.sck_pin);
+	hal_gpio_set(cfg->sw_spi.sck_gpio, cfg->sw_spi.sck_pin);
 
 	spi_bb_delay();
 	spi_bb_begin(&(cfg->sw_spi));

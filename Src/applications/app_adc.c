@@ -31,6 +31,7 @@
 #include "comm_can.h"
 #include "hw.h"
 #include <math.h>
+#include "hwconf/hal_gpio.h"
 
 // Settings
 #define MAX_CAN_AGE						0.1
@@ -72,10 +73,10 @@ static volatile bool range_ok = true;
 void app_adc_configure(adc_config *conf) {
 	if (!buttons_detached && (((conf->buttons >> 0) & 1) || CTRL_USES_BUTTON(conf->ctrl_type))) {
 		if (use_rx_tx_as_buttons) {
-			palSetPadMode(HW_UART_TX_PORT, HW_UART_TX_PIN, PAL_MODE_INPUT_PULLUP);
-			palSetPadMode(HW_UART_RX_PORT, HW_UART_RX_PIN, PAL_MODE_INPUT_PULLUP);
+			hal_gpio_init_input_pullup(HW_UART_TX_PORT, HW_UART_TX_PIN);
+			hal_gpio_init_input_pullup(HW_UART_RX_PORT, HW_UART_RX_PIN);
 		} else {
-			palSetPadMode(HW_ICU_GPIO, HW_ICU_PIN, PAL_MODE_INPUT_PULLUP);
+			hal_gpio_init_input_pullup(HW_ICU_GPIO, HW_ICU_PIN);
 		}
 	}
 
@@ -85,10 +86,10 @@ void app_adc_configure(adc_config *conf) {
 
 void app_adc_start(bool use_rx_tx) {
 #ifdef HW_ADC_EXT_GPIO
-	palSetPadMode(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN, PAL_MODE_INPUT_ANALOG);
+	hal_gpio_init_input_analog(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN);
 #endif
 #ifdef HW_ADC_EXT2_GPIO
-	palSetPadMode(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN, PAL_MODE_INPUT_ANALOG);
+	hal_gpio_init_input_analog(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN);
 #endif
 
 	if (buttons_detached) {
@@ -288,11 +289,11 @@ static THD_FUNCTION(adc_thread, arg) {
 		bool cc_button = false;
 		bool rev_button = false;
 		if (use_rx_tx_as_buttons) {
-			cc_button = !palReadPad(HW_UART_TX_PORT, HW_UART_TX_PIN);
+			cc_button = !hal_gpio_read(HW_UART_TX_PORT, HW_UART_TX_PIN);
 			if ((config.buttons >> 1) & 1) {
 				cc_button = !cc_button;
 			}
-			rev_button = !palReadPad(HW_UART_RX_PORT, HW_UART_RX_PIN);
+			rev_button = !hal_gpio_read(HW_UART_RX_PORT, HW_UART_RX_PIN);
 			if ((config.buttons >> 2) & 1) {
 				rev_button = !rev_button;
 			}
@@ -303,12 +304,12 @@ static THD_FUNCTION(adc_thread, arg) {
 					config.ctrl_type == ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_BUTTON ||
 					config.ctrl_type == ADC_CTRL_TYPE_DUTY_REV_BUTTON ||
 					config.ctrl_type == ADC_CTRL_TYPE_PID_REV_BUTTON) {
-				rev_button = !palReadPad(HW_ICU_GPIO, HW_ICU_PIN);
+				rev_button = !hal_gpio_read(HW_ICU_GPIO, HW_ICU_PIN);
 				if ((config.buttons >> 2) & 1) {
 					rev_button = !rev_button;
 				}
 			} else {
-				cc_button = !palReadPad(HW_ICU_GPIO, HW_ICU_PIN);
+				cc_button = !hal_gpio_read(HW_ICU_GPIO, HW_ICU_PIN);
 				if ((config.buttons >> 1) & 1) {
 					cc_button = !cc_button;
 				}

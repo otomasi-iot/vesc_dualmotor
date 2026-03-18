@@ -28,6 +28,7 @@
 #include "hw.h"
 #include "timeout.h"
 #include "comm_can.h"
+#include "hwconf/hal_gpio.h"
 
 #include <math.h>
 
@@ -125,8 +126,8 @@ void app_sten_stop(void) {
 
 	if (is_running) {
 		uartStop(&HW_UART_DEV);
-		palSetPadMode(HW_UART_TX_PORT, HW_UART_TX_PIN, PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(HW_UART_RX_PORT, HW_UART_RX_PIN, PAL_MODE_INPUT_PULLUP);
+		hal_gpio_init_input_pullup(HW_UART_TX_PORT, HW_UART_TX_PIN);
+		hal_gpio_init_input_pullup(HW_UART_RX_PORT, HW_UART_RX_PIN);
 	}
 
 	while (is_running) {
@@ -140,12 +141,8 @@ static THD_FUNCTION(uart_thread, arg) {
 	chRegSetThreadName("UART");
 
 	uartStart(&HW_UART_DEV, &uart_cfg);
-	palSetPadMode(HW_UART_TX_PORT, HW_UART_TX_PIN, PAL_MODE_ALTERNATE(HW_UART_GPIO_AF) |
-			PAL_STM32_OSPEED_HIGHEST |
-			PAL_STM32_PUDR_PULLUP);
-	palSetPadMode(HW_UART_RX_PORT, HW_UART_RX_PIN, PAL_MODE_ALTERNATE(HW_UART_GPIO_AF) |
-			PAL_STM32_OSPEED_HIGHEST |
-			PAL_STM32_PUDR_PULLUP);
+	hal_gpio_init_af(HW_UART_TX_PORT, HW_UART_TX_PIN, HW_UART_GPIO_AF);
+	hal_gpio_init_af(HW_UART_RX_PORT, HW_UART_RX_PIN, HW_UART_GPIO_AF);
 
 	systime_t time = chVTGetSystemTime();
 

@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "hwconf/hal_gpio.h"
 
 /*
  * HW Connections:
@@ -152,9 +153,9 @@ void app_custom_start(void) {
 	comm_can_set_eid_rx_callback(can_eid_callback);
 	lispif_set_ext_load_callback(load_lbm_extensions);
 
-	palSetPadMode(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN, PAL_MODE_INPUT_PULLDOWN);
-	palSetPadMode(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN, PAL_MODE_INPUT_PULLDOWN);
-	palSetPadMode(HW_UART_RX_PORT, HW_UART_RX_PIN, PAL_MODE_INPUT_PULLDOWN);
+	hal_gpio_init_input_pulldown(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN);
+	hal_gpio_init_input_pulldown(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN);
+	hal_gpio_init_input_pulldown(HW_UART_RX_PORT, HW_UART_RX_PIN);
 
 	terminal_register_command_callback(
 			"sd_mon",
@@ -185,8 +186,8 @@ void app_custom_stop(void) {
 	comm_can_set_eid_rx_callback(0);
 	terminal_unregister_callback(terminal_mon);
 
-	palSetPadMode(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN, PAL_MODE_INPUT_ANALOG);
-	palSetPadMode(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN, PAL_MODE_INPUT_ANALOG);
+	hal_gpio_init_input_analog(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN);
+	hal_gpio_init_input_analog(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN);
 
 	stop_now = true;
 	while (control_is_running || status_is_running) {
@@ -399,18 +400,18 @@ static THD_FUNCTION(control_thread, arg) {
 
 				// Sample push button slower for some debouncing
 
-				btn_left_samples += palReadPad(HW_UART_RX_PORT, HW_UART_RX_PIN) ? 1 : -1;
+				btn_left_samples += hal_gpio_read(HW_UART_RX_PORT, HW_UART_RX_PIN) ? 1 : -1;
 				utils_truncate_number_int(&btn_left_samples, -4, 5);
 				m_pod_state.btn_left_pressed = btn_left_samples > 0;
 
-				btn_right_samples += palReadPad(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN) ? 1 : -1;
+				btn_right_samples += hal_gpio_read(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN) ? 1 : -1;
 				utils_truncate_number_int(&btn_right_samples, -4, 5);
 				m_pod_state.btn_right_pressed = btn_right_samples > 0;
 			}
 		}
 
 		// Sample limit switch faster to not miss the pulse. Also do some filtering.
-		btn_lim_samples += (!palReadPad(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN)) ? 1 : -1;
+		btn_lim_samples += (!hal_gpio_read(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN)) ? 1 : -1;
 		utils_truncate_number_int(&btn_lim_samples, -4, 5);
 		m_pod_state.btn_limit_pressed = btn_lim_samples > 0;
 

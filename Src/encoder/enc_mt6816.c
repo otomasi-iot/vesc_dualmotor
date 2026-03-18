@@ -29,6 +29,7 @@
 #include "utils_math.h"
 #include "spi_bb.h"
 #include "timer.h"
+#include "hwconf/hal_gpio.h"
 
 #include <math.h>
 #include <string.h>
@@ -42,14 +43,10 @@ bool enc_mt6816_init(MT6816_config_t *cfg) {
 
 	memset(&cfg->state, 0, sizeof(MT6816_state));
 
-	palSetPadMode(cfg->sck_gpio, cfg->sck_pin,
-			PAL_MODE_ALTERNATE(cfg->spi_af) | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(cfg->miso_gpio, cfg->miso_pin,
-			PAL_MODE_ALTERNATE(cfg->spi_af) | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(cfg->nss_gpio, cfg->nss_pin,
-			PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(cfg->mosi_gpio, cfg->mosi_pin,
-			PAL_MODE_ALTERNATE(cfg->spi_af) | PAL_STM32_OSPEED_HIGHEST);
+	hal_gpio_init_af(cfg->sck_gpio, cfg->sck_pin, cfg->spi_af);
+	hal_gpio_init_af(cfg->miso_gpio, cfg->miso_pin, cfg->spi_af);
+	hal_gpio_init_output(cfg->nss_gpio, cfg->nss_pin);
+	hal_gpio_init_af(cfg->mosi_gpio, cfg->mosi_pin, cfg->spi_af);
 
 	spiStart(cfg->spi_dev, &(cfg->hw_spi_cfg));
 
@@ -64,10 +61,10 @@ void enc_mt6816_deinit(MT6816_config_t *cfg) {
 		return;
 	}
 
-	palSetPadMode(cfg->miso_gpio, cfg->miso_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(cfg->sck_gpio, cfg->sck_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(cfg->nss_gpio, cfg->nss_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(cfg->mosi_gpio, cfg->mosi_pin, PAL_MODE_INPUT_PULLUP);
+	hal_gpio_init_input_pullup(cfg->miso_gpio, cfg->miso_pin);
+	hal_gpio_init_input_pullup(cfg->sck_gpio, cfg->sck_pin);
+	hal_gpio_init_input_pullup(cfg->nss_gpio, cfg->nss_pin);
+	hal_gpio_init_input_pullup(cfg->mosi_gpio, cfg->mosi_pin);
 
 	spiStop(cfg->spi_dev);
 
@@ -88,8 +85,8 @@ void enc_mt6816_routine(MT6816_config_t *cfg) {
 	uint16_t reg_addr_03 = 0x8300;
 	uint16_t reg_addr_04 = 0x8400;
 
-#define SPI_BEGIN()		spi_bb_delay(); palClearPad(cfg->nss_gpio, cfg->nss_pin); spi_bb_delay();
-#define SPI_END()		spi_bb_delay(); palSetPad(cfg->nss_gpio, cfg->nss_pin); spi_bb_delay();
+#define SPI_BEGIN()		spi_bb_delay(); hal_gpio_clear(cfg->nss_gpio, cfg->nss_pin); spi_bb_delay();
+#define SPI_END()		spi_bb_delay(); hal_gpio_set(cfg->nss_gpio, cfg->nss_pin); spi_bb_delay();
 
 	// TODO: The fact that the polled version is used means that it is
 	// more or less pointless to use the hardware SPI as the CPU sits

@@ -21,7 +21,9 @@
 
 #include "ch.h"
 #include "hal.h"
-#include "stm32f4xx_conf.h"
+#include "hwconf/hal_gpio.h"
+#include "stm32f1xx_hal.h"
+#include "stm32f1xx_ll_tim.h"
 
 #include <stdio.h>
 #include <math.h>
@@ -264,8 +266,8 @@ int main(void) {
 	HW_EARLY_INIT();
 
 #ifdef BOOT_OK_GPIO
-	palSetPadMode(BOOT_OK_GPIO, BOOT_OK_PIN, PAL_MODE_OUTPUT_PUSHPULL);
-	palClearPad(BOOT_OK_GPIO, BOOT_OK_PIN);
+	hal_gpio_init_output(BOOT_OK_GPIO, BOOT_OK_PIN);
+	hal_gpio_clear(BOOT_OK_GPIO, BOOT_OK_PIN);
 #endif
 
 	chThdSleepMilliseconds(100);
@@ -347,7 +349,7 @@ int main(void) {
 	m_init_done = true;
 
 #ifdef BOOT_OK_GPIO
-	palSetPad(BOOT_OK_GPIO, BOOT_OK_PIN);
+	hal_gpio_set(BOOT_OK_GPIO, BOOT_OK_PIN);
 #endif
 
 #ifdef CAN_ENABLE
@@ -368,38 +370,38 @@ int main(void) {
 }
 
 void main_stop_motor_and_reset(void) {
-	TIM_SelectOCxM(TIM1, TIM_Channel_1, TIM_ForcedAction_InActive);
-	TIM_CCxCmd(TIM1, TIM_Channel_1, TIM_CCx_Enable);
-	TIM_CCxNCmd(TIM1, TIM_Channel_1, TIM_CCxN_Disable);
+	LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
+	LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
+	LL_TIM_CC_DisableChannel(TIM1, LL_TIM_CHANNEL_CH1N);
 
-	TIM_SelectOCxM(TIM1, TIM_Channel_2, TIM_ForcedAction_InActive);
-	TIM_CCxCmd(TIM1, TIM_Channel_2, TIM_CCx_Enable);
-	TIM_CCxNCmd(TIM1, TIM_Channel_2, TIM_CCxN_Disable);
+	LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
+	LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2);
+	LL_TIM_CC_DisableChannel(TIM1, LL_TIM_CHANNEL_CH2N);
 
-	TIM_SelectOCxM(TIM1, TIM_Channel_3, TIM_ForcedAction_InActive);
-	TIM_CCxCmd(TIM1, TIM_Channel_3, TIM_CCx_Enable);
-	TIM_CCxNCmd(TIM1, TIM_Channel_3, TIM_CCxN_Disable);
+	LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
+	LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3);
+	LL_TIM_CC_DisableChannel(TIM1, LL_TIM_CHANNEL_CH3N);
 
-	TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
+	LL_TIM_GenerateEvent_COM(TIM1);
 
 #ifdef HW_HAS_DRV8313
 		DISABLE_BR();
 #endif
 
 #ifdef HW_HAS_DUAL_MOTORS
-	TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_ForcedAction_InActive);
-	TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
-	TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Disable);
+	LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
+	LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
+	LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
 
-	TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_ForcedAction_InActive);
-	TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
-	TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Disable);
+	LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
+	LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
+	LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
 
-	TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_ForcedAction_InActive);
-	TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
-	TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Disable);
+	LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
+	LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
+	LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
 
-	TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
+	LL_TIM_GenerateEvent_COM(TIM8);
 
 #ifdef HW_HAS_DRV8313_2
 		ENABLE_BR_2();

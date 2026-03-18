@@ -26,6 +26,7 @@
 #include "hw.h"
 #include "mc_interface.h"
 #include "utils_math.h"
+#include "hwconf/hal_gpio.h"
 
 #include <string.h>
 #include <math.h>
@@ -35,9 +36,9 @@ bool enc_abi_init(ABI_config_t *cfg) {
 
 	memset(&cfg->state, 0, sizeof(ABI_state));
 
-	palSetPadMode(cfg->A_gpio, cfg->A_pin, PAL_MODE_ALTERNATE(cfg->tim_af));
-	palSetPadMode(cfg->B_gpio, cfg->B_pin, PAL_MODE_ALTERNATE(cfg->tim_af));
-	palSetPadMode(cfg->I_gpio, cfg->I_pin, PAL_MODE_INPUT_PULLUP);
+	hal_gpio_init_af(cfg->A_gpio, cfg->A_pin, cfg->tim_af);
+	hal_gpio_init_af(cfg->B_gpio, cfg->B_pin, cfg->tim_af);
+	hal_gpio_init_input_pullup(cfg->I_gpio, cfg->I_pin);
 
 	// Enable timer clock
 	HW_ENC_TIM_CLK_EN();
@@ -76,9 +77,9 @@ bool enc_abi_init(ABI_config_t *cfg) {
 void enc_abi_deinit(ABI_config_t *cfg) {
 	nvicDisableVector(cfg->exti_ch);
 	TIM_DeInit(cfg->timer);
-	palSetPadMode(cfg->A_gpio, cfg->A_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(cfg->B_gpio, cfg->B_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(cfg->I_gpio, cfg->I_pin, PAL_MODE_INPUT_PULLUP);
+	hal_gpio_init_input_pullup(cfg->A_gpio, cfg->A_pin);
+	hal_gpio_init_input_pullup(cfg->B_gpio, cfg->B_pin);
+	hal_gpio_init_input_pullup(cfg->I_gpio, cfg->I_pin);
 }
 
 float enc_abi_read_deg(ABI_config_t *cfg) {
@@ -92,7 +93,7 @@ void enc_abi_pin_isr(ABI_config_t *cfg) {
 	__NOP();
 	__NOP();
 	__NOP();
-	if (palReadPad(cfg->I_gpio, cfg->I_pin)) {
+	if (hal_gpio_read(cfg->I_gpio, cfg->I_pin)) {
 		const unsigned int cnt = cfg->timer->CNT;
 		const unsigned int lim = cfg->counts / 20;
 

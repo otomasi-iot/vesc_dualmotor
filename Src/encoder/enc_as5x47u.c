@@ -28,6 +28,7 @@
 #include "utils_math.h"
 #include "spi_bb.h"
 #include "timer.h"
+#include "hwconf/hal_gpio.h"
 
 #include <string.h>
 #include <math.h>
@@ -254,14 +255,10 @@ bool enc_as5x47u_init(AS5x47U_config_t *cfg) {
 
 	memset(&cfg->state, 0, sizeof(AS5x47U_state));
 
-	palSetPadMode(cfg->sck_gpio, cfg->sck_pin,
-			PAL_MODE_ALTERNATE(cfg->spi_af) | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(cfg->miso_gpio, cfg->miso_pin,
-			PAL_MODE_ALTERNATE(cfg->spi_af) | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(cfg->nss_gpio, cfg->nss_pin,
-			PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(cfg->mosi_gpio, cfg->mosi_pin,
-			PAL_MODE_ALTERNATE(cfg->spi_af) | PAL_STM32_OSPEED_HIGHEST);
+	hal_gpio_init_af(cfg->sck_gpio, cfg->sck_pin, cfg->spi_af);
+	hal_gpio_init_af(cfg->miso_gpio, cfg->miso_pin, cfg->spi_af);
+	hal_gpio_init_output(cfg->nss_gpio, cfg->nss_pin);
+	hal_gpio_init_af(cfg->mosi_gpio, cfg->mosi_pin, cfg->spi_af);
 
 	cfg->spi_dev->app_arg = (void*)cfg;
 	cfg->spi_dev->err_cb = as5x47u_spi_err_callback;
@@ -278,10 +275,10 @@ bool enc_as5x47u_init(AS5x47U_config_t *cfg) {
 
 void enc_as5x47u_deinit(AS5x47U_config_t *cfg) {
 	if (cfg->spi_dev != NULL) {
-		palSetPadMode(cfg->miso_gpio, cfg->miso_pin, PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(cfg->sck_gpio, cfg->sck_pin, PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(cfg->nss_gpio, cfg->nss_pin, PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(cfg->mosi_gpio, cfg->mosi_pin, PAL_MODE_INPUT_PULLUP);
+		hal_gpio_init_input_pullup(cfg->miso_gpio, cfg->miso_pin);
+		hal_gpio_init_input_pullup(cfg->sck_gpio, cfg->sck_pin);
+		hal_gpio_init_input_pullup(cfg->nss_gpio, cfg->nss_pin);
+		hal_gpio_init_input_pullup(cfg->mosi_gpio, cfg->mosi_pin);
 
 		spiStop(cfg->spi_dev);
 

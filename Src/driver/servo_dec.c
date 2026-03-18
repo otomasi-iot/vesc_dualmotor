@@ -25,6 +25,7 @@
 #include "hal.h"
 #include "hw.h"
 #include "utils_math.h"
+#include "hwconf/hal_gpio.h"
 
 // Settings
 #define SERVO_NUM				1
@@ -111,7 +112,7 @@ static ICUConfig icucfg = {
  */
 void servodec_init(void (*d_func)(void)) {
 	icuStart(&HW_ICU_DEV, &icucfg);
-	palSetPadMode(HW_ICU_GPIO, HW_ICU_PIN, PAL_MODE_ALTERNATE(HW_ICU_GPIO_AF));
+	hal_gpio_init_af(HW_ICU_GPIO, HW_ICU_PIN, HW_ICU_GPIO_AF);
 	icuStartCapture(&HW_ICU_DEV);
 	icuEnableNotifications(&HW_ICU_DEV);
 
@@ -133,7 +134,7 @@ void servodec_stop(void) {
 	if (is_running) {
 		icuStopCapture(&HW_ICU_DEV);
 		icuStop(&HW_ICU_DEV);
-		palSetPadMode(HW_ICU_GPIO, HW_ICU_PIN, PAL_MODE_INPUT);
+		hal_gpio_init_input(HW_ICU_GPIO, HW_ICU_PIN);
 		pulse_start = 1.0;
 		pulse_end = 2.0;
 		use_median_filter = false;

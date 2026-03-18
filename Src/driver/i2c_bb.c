@@ -18,17 +18,18 @@
  */
 
 #include "i2c_bb.h"
+#include "hwconf/hal_gpio.h"
 #include "timer.h"
 
 // This is based on https://en.wikipedia.org/wiki/I%C2%B2C
 
 // Macros
-#define SDA_LOW()				palClearPad(s->sda_gpio, s->sda_pin)
-#define SDA_HIGH()				palSetPad(s->sda_gpio, s->sda_pin)
-#define SCL_LOW()				palClearPad(s->scl_gpio, s->scl_pin)
-#define SCL_HIGH()				palSetPad(s->scl_gpio, s->scl_pin)
-#define READ_SDA()				palReadPad(s->sda_gpio, s->sda_pin)
-#define READ_SCL()				palReadPad(s->scl_gpio, s->scl_pin)
+#define SDA_LOW()				hal_gpio_clear(s->sda_gpio, s->sda_pin)
+#define SDA_HIGH()				hal_gpio_set(s->sda_gpio, s->sda_pin)
+#define SCL_LOW()				hal_gpio_clear(s->scl_gpio, s->scl_pin)
+#define SCL_HIGH()				hal_gpio_set(s->scl_gpio, s->scl_pin)
+#define READ_SDA()				hal_gpio_read(s->sda_gpio, s->sda_pin)
+#define READ_SCL()				hal_gpio_read(s->scl_gpio, s->scl_pin)
 
 // Private functions
 static void i2c_start_cond(i2c_bb_state *s);
@@ -51,8 +52,8 @@ static inline float rate2secs(i2c_bb_state *s) {
 
 void i2c_bb_init(i2c_bb_state *s) {
 	chMtxObjectInit(&s->mutex);
-	palSetPadMode(s->sda_gpio, s->sda_pin, PAL_MODE_OUTPUT_OPENDRAIN | PAL_STM32_PUDR_PULLUP);
-	palSetPadMode(s->scl_gpio, s->scl_pin, PAL_MODE_OUTPUT_OPENDRAIN | PAL_STM32_PUDR_PULLUP);
+	hal_gpio_init_output_od(s->sda_gpio, s->sda_pin);
+	hal_gpio_init_output_od(s->scl_gpio, s->scl_pin);
 	s->has_started = false;
 	s->has_error = false;
 }

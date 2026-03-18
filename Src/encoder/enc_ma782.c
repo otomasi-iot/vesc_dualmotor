@@ -32,6 +32,7 @@
 #include "timer.h"
 #include "commands.h"
 #include "hw.h"
+#include "hwconf/hal_gpio.h"
 
 
 #define BIT_MASK(l, h)  (((1U << ((h) + 1)) - 1) & ~((1U << (l)) - 1))
@@ -237,19 +238,14 @@ bool enc_ma782_init(ma782_config_t *cfg) {
 	cfg->spi_dev->app_arg = (void*)cfg;
 	cfg->spi_dev->err_cb = ma782_error_cb;
 
-	palSetPadMode(cfg->sck_gpio, cfg->sck_pin,
-			PAL_MODE_ALTERNATE(cfg->spi_af) | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(cfg->miso_gpio, cfg->miso_pin,
-			PAL_MODE_ALTERNATE(cfg->spi_af) | PAL_STM32_OSPEED_HIGHEST | PAL_STM32_PUDR_FLOATING);
-	palSetPadMode(cfg->nss_gpio, cfg->nss_pin,
-			PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(cfg->mosi_gpio, cfg->mosi_pin,
-			PAL_MODE_ALTERNATE(cfg->spi_af) | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(cfg->en_gpio, cfg->en_pin,
-			PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
+	hal_gpio_init_af(cfg->sck_gpio, cfg->sck_pin, cfg->spi_af);
+	hal_gpio_init_af(cfg->miso_gpio, cfg->miso_pin, cfg->spi_af);
+	hal_gpio_init_output(cfg->nss_gpio, cfg->nss_pin);
+	hal_gpio_init_af(cfg->mosi_gpio, cfg->mosi_pin, cfg->spi_af);
+	hal_gpio_init_output(cfg->en_gpio, cfg->en_pin);
 
 	chThdSleepMilliseconds(1);
-	palSetPad(cfg->en_gpio, cfg->en_pin);
+	hal_gpio_set(cfg->en_gpio, cfg->en_pin);
 	chThdSleepMilliseconds(1);
 	spiStart(cfg->spi_dev, &(cfg->hw_spi_cfg));
 	chThdSleepMilliseconds(1);
@@ -269,13 +265,13 @@ bool enc_ma782_init(ma782_config_t *cfg) {
 void enc_ma782_deinit(ma782_config_t *cfg) {
 	if (cfg->spi_dev != NULL) {
 
-		palClearPad(cfg->en_gpio, cfg->en_pin);
+		hal_gpio_clear(cfg->en_gpio, cfg->en_pin);
 
-		palSetPadMode(cfg->miso_gpio, cfg->miso_pin, PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(cfg->sck_gpio, cfg->sck_pin, PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(cfg->nss_gpio, cfg->nss_pin, PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(cfg->mosi_gpio, cfg->mosi_pin, PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(cfg->en_gpio, cfg->en_pin, PAL_MODE_INPUT_PULLDOWN);
+		hal_gpio_init_input_pullup(cfg->miso_gpio, cfg->miso_pin);
+		hal_gpio_init_input_pullup(cfg->sck_gpio, cfg->sck_pin);
+		hal_gpio_init_input_pullup(cfg->nss_gpio, cfg->nss_pin);
+		hal_gpio_init_input_pullup(cfg->mosi_gpio, cfg->mosi_pin);
+		hal_gpio_init_input_pulldown(cfg->en_gpio, cfg->en_pin);
 
 		spiStop(cfg->spi_dev);
 

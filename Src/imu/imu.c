@@ -18,6 +18,7 @@
     */
 
 #include "imu.h"
+#include "hwconf/hal_gpio.h"
 #include "hw.h"
 #include "mpu9150.h"
 #include "ahrs.h"
@@ -133,10 +134,10 @@ void imu_init(imu_config *set) {
 
 		// SPI not implemented yet, use as I2C
 #ifdef LSM6DS3_NSS_GPIO
-		palSetPadMode(LSM6DS3_NSS_GPIO, LSM6DS3_NSS_PIN, PAL_MODE_OUTPUT_PUSHPULL);
-		palSetPad(LSM6DS3_NSS_GPIO, LSM6DS3_NSS_PIN);
-		palSetPadMode(LSM6DS3_MISO_GPIO, LSM6DS3_MISO_PIN, PAL_MODE_OUTPUT_PUSHPULL);
-		palClearPad(LSM6DS3_MISO_GPIO, LSM6DS3_MISO_PIN);
+		hal_gpio_init_output(LSM6DS3_NSS_GPIO, LSM6DS3_NSS_PIN);
+		hal_gpio_set(LSM6DS3_NSS_GPIO, LSM6DS3_NSS_PIN);
+		hal_gpio_init_output(LSM6DS3_MISO_GPIO, LSM6DS3_MISO_PIN);
+		hal_gpio_clear(LSM6DS3_MISO_GPIO, LSM6DS3_MISO_PIN);
 		imu_init_lsm6ds3(LSM6DS3_MOSI_GPIO, LSM6DS3_MOSI_PIN,
 				LSM6DS3_SCK_GPIO, LSM6DS3_SCK_PIN);
 		m_imu_type_internal = "LSM6DS3";

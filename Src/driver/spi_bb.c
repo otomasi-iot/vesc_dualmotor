@@ -18,6 +18,7 @@
  */
 
 #include "spi_bb.h"
+#include "hwconf/hal_gpio.h"
 #include "timer.h"
 
 // Software SPI
@@ -28,24 +29,24 @@ void spi_bb_init(spi_bb_state *s) {
 		s->mutex_init_done = true;
 	}
 
-	palSetPadMode(s->miso_gpio, s->miso_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(s->sck_gpio, s->sck_pin, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-	palSetPadMode(s->nss_gpio, s->nss_pin, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
+	hal_gpio_init_input_pullup(s->miso_gpio, s->miso_pin);
+	hal_gpio_init_output(s->sck_gpio, s->sck_pin);
+	hal_gpio_init_output(s->nss_gpio, s->nss_pin);
 
 	if (s->mosi_gpio) {
-		palSetPadMode(s->mosi_gpio, s->mosi_pin, PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-		palSetPad(s->mosi_gpio, s->mosi_pin);
-		palSetPad(s->nss_gpio, s->nss_pin);
+		hal_gpio_init_output(s->mosi_gpio, s->mosi_pin);
+		hal_gpio_set(s->mosi_gpio, s->mosi_pin);
+		hal_gpio_set(s->nss_gpio, s->nss_pin);
 	}
 }
 
 void spi_bb_deinit(spi_bb_state *s) {
-	palSetPadMode(s->miso_gpio, s->miso_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(s->sck_gpio, s->sck_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(s->nss_gpio, s->nss_pin, PAL_MODE_INPUT_PULLUP);
+	hal_gpio_init_input_pullup(s->miso_gpio, s->miso_pin);
+	hal_gpio_init_input_pullup(s->sck_gpio, s->sck_pin);
+	hal_gpio_init_input_pullup(s->nss_gpio, s->nss_pin);
 
 	if (s->mosi_gpio) {
-		palSetPadMode(s->mosi_gpio, s->mosi_pin, PAL_MODE_INPUT_PULLUP);
+		hal_gpio_init_input_pullup(s->mosi_gpio, s->mosi_pin);
 	}
 }
 
@@ -53,23 +54,21 @@ void ssc_bb_init(spi_bb_state *s) {
 	chMtxObjectInit(&s->mutex);
 
 	if (s->mosi_gpio && s->nss_gpio && s->sck_gpio) { // TODO: test
-		palSetPadMode(s->mosi_gpio, s->mosi_pin, PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(s->sck_gpio, s->sck_pin,
-				PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
-		palSetPadMode(s->nss_gpio, s->nss_pin,
-				PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
+		hal_gpio_init_input_pullup(s->mosi_gpio, s->mosi_pin);
+		hal_gpio_init_output(s->sck_gpio, s->sck_pin);
+		hal_gpio_init_output(s->nss_gpio, s->nss_pin);
 	}
 
-	palClearPad(s->sck_gpio, s->sck_pin);
-	palSetPad(s->nss_gpio, s->nss_pin);
+	hal_gpio_clear(s->sck_gpio, s->sck_pin);
+	hal_gpio_set(s->nss_gpio, s->nss_pin);
 }
 
 void ssc_bb_deinit(spi_bb_state *s) {
 	chMtxObjectInit(&s->mutex);
 
-	palSetPadMode(s->mosi_gpio, s->miso_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(s->sck_gpio, s->sck_pin, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(s->nss_gpio, s->nss_pin, PAL_MODE_INPUT_PULLUP);
+	hal_gpio_init_input_pullup(s->mosi_gpio, s->miso_pin);
+	hal_gpio_init_input_pullup(s->sck_gpio, s->sck_pin);
+	hal_gpio_init_input_pullup(s->nss_gpio, s->nss_pin);
 }
 
 uint8_t spi_bb_exchange_8(spi_bb_state *s, uint8_t x) {
@@ -91,25 +90,25 @@ void spi_bb_transfer_8(
 
 		for (int bit = 0; bit < 8; bit++) {
 			if(s->mosi_gpio) {
-				palWritePad(s->mosi_gpio, s->mosi_pin, send >> 7);
+				hal_gpio_write(s->mosi_gpio, s->mosi_pin, send >> 7);
 				send <<= 1;
 			}
 
-			palSetPad(s->sck_gpio, s->sck_pin);
+			hal_gpio_set(s->sck_gpio, s->sck_pin);
 			spi_bb_delay();
 
 			int samples = 0;
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 			__NOP();
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 			__NOP();
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 			__NOP();
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 			__NOP();
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 
-			palClearPad(s->sck_gpio, s->sck_pin);
+			hal_gpio_clear(s->sck_gpio, s->sck_pin);
 
 			// does 5 samples of each pad read, to minimize noise
 			receive <<= 1;
@@ -138,30 +137,30 @@ void spi_bb_transfer_16(
 
 		for (int bit = 0; bit < 16; bit++) {
 			if(s->mosi_gpio) {
-				palWritePad(s->mosi_gpio, s->mosi_pin, send >> 15);
+				hal_gpio_write(s->mosi_gpio, s->mosi_pin, send >> 15);
 				send <<= 1;
 			}
 
-			palSetPad(s->sck_gpio, s->sck_pin);
+			hal_gpio_set(s->sck_gpio, s->sck_pin);
 			spi_bb_delay_short();
 
 			int samples = 0;
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 			__NOP();
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 			__NOP();
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 			__NOP();
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 			__NOP();
-			samples += palReadPad(s->miso_gpio, s->miso_pin);
+			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 
 			receive <<= 1;
 			if (samples > 2) {
 				receive |= 1;
 			}
 
-			palClearPad(s->sck_gpio, s->sck_pin);
+			hal_gpio_clear(s->sck_gpio, s->sck_pin);
 			spi_bb_delay_short();
 		}
 
@@ -196,31 +195,30 @@ void ssc_bb_transfer_16(
 
 		//ssc uses mosi for all data
 		if(write && s->mosi_gpio){
-			palWritePad(s->mosi_gpio, s->mosi_pin, send >> 15); 
-			palSetPadMode(s->mosi_gpio, s->mosi_pin,
-				PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
+			hal_gpio_write(s->mosi_gpio, s->mosi_pin, send >> 15);
+			hal_gpio_init_output(s->mosi_gpio, s->mosi_pin);
 		} else {
-			palSetPadMode(s->mosi_gpio, s->mosi_pin, PAL_MODE_INPUT_PULLUP);
+			hal_gpio_init_input_pullup(s->mosi_gpio, s->mosi_pin);
 			write = false;
 		}
 
 		for (int bit = 0; bit < 16; bit++) {
-			// Data is put on the data line with the rising edge of SCK 
+			// Data is put on the data line with the rising edge of SCK
 			// and read with the falling edge of SCK. (tle5012)
-			palSetPad(s->sck_gpio, s->sck_pin); 
-			
+			hal_gpio_set(s->sck_gpio, s->sck_pin);
+
 			if(write){
-				palWritePad(s->mosi_gpio, s->mosi_pin, send >> 15); 
+				hal_gpio_write(s->mosi_gpio, s->mosi_pin, send >> 15);
 				send <<= 1;
 			}
 
 			spi_bb_delay_short();
-			palClearPad(s->sck_gpio, s->sck_pin);
+			hal_gpio_clear(s->sck_gpio, s->sck_pin);
 			spi_bb_delay_short();
 
 			// read when clk low
 			receive <<= 1;
-			receive |= palReadPad(s->mosi_gpio, s->mosi_pin);
+			receive |= hal_gpio_read(s->mosi_gpio, s->mosi_pin);
 		}
 
 		if (in_buf) {
@@ -231,13 +229,13 @@ void ssc_bb_transfer_16(
 
 void spi_bb_begin(spi_bb_state *s) {
 	spi_bb_delay();
-	palClearPad(s->nss_gpio, s->nss_pin);
+	hal_gpio_clear(s->nss_gpio, s->nss_pin);
 	spi_bb_delay();
 }
 
 void spi_bb_end(spi_bb_state *s) {
 	spi_bb_delay();
-	palSetPad(s->nss_gpio, s->nss_pin);
+	hal_gpio_set(s->nss_gpio, s->nss_pin);
 	spi_bb_delay();
 }
 

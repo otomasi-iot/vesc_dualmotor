@@ -17,79 +17,96 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
     */
 
-#include "ch.h"
-#include "hal.h"
-#include "stm32f4xx_conf.h"
-#include "isr_vector_table.h"
+#include "stm32f1xx_hal.h"
+#include "stm32f1xx_ll_tim.h"
 #include "mc_interface.h"
 #include "mcpwm_foc.h"
 #include "hw.h"
 #include "encoder/encoder.h"
 #include "main.h"
 
-CH_IRQ_HANDLER(ADC1_2_3_IRQHandler) {
-	CH_IRQ_PROLOGUE();
-	ADC_ClearITPendingBit(ADC1, ADC_IT_JEOC);
-	mc_interface_adc_inj_int_handler();
-	CH_IRQ_EPILOGUE();
+// External DMA handle from mcpwm_foc.c
+extern DMA_HandleTypeDef hdma_adc;
+
+// DMA1 Channel1 IRQ: ADC DMA transfer complete/half-complete
+// This is the primary FOC ISR trigger (replaces DMA2_Stream4 on F4)
+void DMA1_Channel1_IRQHandler(void) {
+	// Check half-transfer flag
+	if (__HAL_DMA_GET_FLAG(&hdma_adc, DMA_FLAG_HT1)) {
+		__HAL_DMA_CLEAR_FLAG(&hdma_adc, DMA_FLAG_HT1);
+		mcpwm_foc_adc_int_handler(NULL, 0);
+	}
+
+	// Check transfer-complete flag
+	if (__HAL_DMA_GET_FLAG(&hdma_adc, DMA_FLAG_TC1)) {
+		__HAL_DMA_CLEAR_FLAG(&hdma_adc, DMA_FLAG_TC1);
+		mcpwm_foc_adc_int_handler(NULL, 0);
+	}
+
+	// Clear any error flags
+	if (__HAL_DMA_GET_FLAG(&hdma_adc, DMA_FLAG_TE1)) {
+		__HAL_DMA_CLEAR_FLAG(&hdma_adc, DMA_FLAG_TE1);
+	}
 }
 
-CH_IRQ_HANDLER(HW_ENC_EXTI_ISR_VEC) {
-	if (EXTI_GetITStatus(HW_ENC_EXTI_LINE) != RESET) {
+// ADC1/2 injected end-of-conversion interrupt
+void ADC1_2_IRQHandler(void) {
+	if (ADC1->SR & ADC_SR_JEOC) {
+		ADC1->SR &= ~ADC_SR_JEOC;
+		mc_interface_adc_inj_int_handler();
+	}
+}
+
+// Encoder EXTI interrupt
+void HW_ENC_EXTI_ISR_VEC(void) {
+	if (__HAL_GPIO_EXTI_GET_IT(HW_ENC_EXTI_LINE) != RESET) {
 		encoder_pin_isr();
-
-		// Clear the EXTI line pending bit
-		EXTI_ClearITPendingBit(HW_ENC_EXTI_LINE);
+		__HAL_GPIO_EXTI_CLEAR_IT(HW_ENC_EXTI_LINE);
 	}
 }
 
-CH_IRQ_HANDLER(HW_ENC_TIM_ISR_VEC) {
-	if (TIM_GetITStatus(HW_ENC_TIM, TIM_IT_Update) != RESET) {
+// Encoder timer overflow interrupt
+void HW_ENC_TIM_ISR_VEC(void) {
+	if (LL_TIM_IsActiveFlag_UPDATE(HW_ENC_TIM)) {
 		encoder_tim_isr();
-
-		// Clear the IT pending bit
-		TIM_ClearITPendingBit(HW_ENC_TIM, TIM_IT_Update);
+		LL_TIM_ClearFlag_UPDATE(HW_ENC_TIM);
 	}
 }
 
-CH_IRQ_HANDLER(TIM2_IRQHandler) {
-	if (TIM_GetITStatus(TIM2, TIM_IT_CC2) != RESET) {
+// TIM2 CC2 interrupt: FOC sample timing
+void TIM2_IRQHandler(void) {
+	if (LL_TIM_IsActiveFlag_CC2(TIM2)) {
 		mcpwm_foc_tim_sample_int_handler();
-
-		// Clear the IT pending bit
-		TIM_ClearITPendingBit(TIM2, TIM_IT_CC2);
+		LL_TIM_ClearFlag_CC2(TIM2);
 	}
-	TIM_ClearITPendingBit(TIM2, TIM_IT_CC2);
+	LL_TIM_ClearFlag_CC2(TIM2);
 }
 
-CH_IRQ_HANDLER(PVD_IRQHandler) {
-	if (EXTI_GetITStatus(EXTI_Line16) != RESET) {
-		// Log the fault. Supply voltage dropped below 2.9V,
-		// could corrupt an ongoing flash programming
+// Power voltage detector - under-voltage fault
+void PVD_IRQHandler(void) {
+	if (__HAL_GPIO_EXTI_GET_IT(EXTI_LINE_16) != RESET) {
 		mc_interface_fault_stop(FAULT_CODE_MCU_UNDER_VOLTAGE, false, true);
-
-		// Clear the PVD pending bit
-		EXTI_ClearITPendingBit(EXTI_Line16);
-		EXTI_ClearFlag(EXTI_Line16);
+		__HAL_GPIO_EXTI_CLEAR_IT(EXTI_LINE_16);
 	}
 }
 
-CH_IRQ_HANDLER(NMI_Handler) {
+// Fault handlers
+void NMI_Handler(void) {
 	main_stop_motor_and_reset();
 }
 
-CH_IRQ_HANDLER(HardFault_Handler) {
+void HardFault_Handler(void) {
 	main_stop_motor_and_reset();
 }
 
-CH_IRQ_HANDLER(MemManage_Handler) {
+void MemManage_Handler(void) {
 	main_stop_motor_and_reset();
 }
 
-CH_IRQ_HANDLER(BusFault_Handler) {
+void BusFault_Handler(void) {
 	main_stop_motor_and_reset();
 }
 
-CH_IRQ_HANDLER(UsageFault_Handler) {
+void UsageFault_Handler(void) {
 	main_stop_motor_and_reset();
 }

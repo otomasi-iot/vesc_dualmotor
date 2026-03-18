@@ -25,7 +25,10 @@
 #include "mc_interface.h"
 #include "ch.h"
 #include "hal.h"
-#include "stm32f4xx_conf.h"
+#include "hwconf/hal_gpio.h"
+#include "stm32f1xx_hal.h"
+#include "stm32f1xx_ll_tim.h"
+#include "stm32f1xx_ll_dma.h"
 #include "digital_filter.h"
 #include "utils_math.h"
 #include "utils_sys.h"
@@ -41,6 +44,12 @@
 #include <stdio.h>
 #include "virtual_motor.h"
 #include "foc_math.h"
+
+// HAL handles for timer and DMA peripherals
+TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim8;
+TIM_HandleTypeDef htim2;
+DMA_HandleTypeDef hdma_adc;
 
 // Private variables
 static volatile bool m_dccal_done = false;
@@ -169,158 +178,158 @@ static void update_hfi_samples(foc_hfi_samples samples, volatile motor_all_state
 static void timer_reinit(int f_zv) {
 	utils_sys_lock_cnt();
 
-	TIM_DeInit(TIM1);
-	TIM_DeInit(TIM8);
-	TIM_DeInit(TIM2);
+	uint32_t top = SYSTEM_CORE_CLOCK / f_zv;
 
-	TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
-	TIM_OCInitTypeDef TIM_OCInitStructure;
-	TIM_BDTRInitTypeDef TIM_BDTRInitStructure;
+	// ===== TIM1: Motor 1 PWM (center-aligned) =====
+	__HAL_RCC_TIM1_CLK_ENABLE();
 
-	TIM1->CNT = 0;
-	TIM2->CNT = 0;
-	TIM8->CNT = 0;
+	htim1.Instance = TIM1;
+	htim1.Init.Prescaler = 0;
+	htim1.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED1;
+	htim1.Init.Period = top;
+	htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim1.Init.RepetitionCounter = 0;
+	htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+	HAL_TIM_PWM_Init(&htim1);
 
-	RCC_APB2PeriphClockCmd(RCC_APB2Periph_TIM1, ENABLE);
-	RCC_APB2PeriphClockCmd(RCC_APB2Periph_TIM8, ENABLE);
-
-	TIM_TimeBaseStructure.TIM_Prescaler = 0;
-	TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_CenterAligned1;
-	TIM_TimeBaseStructure.TIM_Period = (SYSTEM_CORE_CLOCK / f_zv);
-	TIM_TimeBaseStructure.TIM_ClockDivision = 0;
-	TIM_TimeBaseStructure.TIM_RepetitionCounter = 0;
-
-	TIM_TimeBaseInit(TIM1, &TIM_TimeBaseStructure);
-	TIM_TimeBaseInit(TIM8, &TIM_TimeBaseStructure);
-
-	TIM_OCInitStructure.TIM_OCMode = TIM_OCMode_PWM1;
-	TIM_OCInitStructure.TIM_OutputState = TIM_OutputState_Enable;
-	TIM_OCInitStructure.TIM_OutputNState = TIM_OutputNState_Enable;
-	TIM_OCInitStructure.TIM_Pulse = TIM1->ARR / 2;
-
+	TIM_OC_InitTypeDef sConfigOC = {0};
+	sConfigOC.OCMode = TIM_OCMODE_PWM1;
+	sConfigOC.Pulse = TIM1->ARR / 2;
 #ifndef INVERTED_TOP_DRIVER_INPUT
-	TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_High; // gpio high = top fets on
+	sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
 #else
-	TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_Low;
+	sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
 #endif
-	TIM_OCInitStructure.TIM_OCIdleState = TIM_OCIdleState_Set;
-
+	sConfigOC.OCIdleState = TIM_OCIDLESTATE_SET;
 #ifndef INVERTED_BOTTOM_DRIVER_INPUT
-	TIM_OCInitStructure.TIM_OCNPolarity = TIM_OCNPolarity_High;  // gpio high = bottom fets on
+	sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
 #else
-	TIM_OCInitStructure.TIM_OCNPolarity = TIM_OCNPolarity_Low;
+	sConfigOC.OCNPolarity = TIM_OCNPOLARITY_LOW;
 #endif
-	TIM_OCInitStructure.TIM_OCNIdleState = TIM_OCNIdleState_Set;
+	sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_SET;
+	sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
-	TIM_OC1Init(TIM1, &TIM_OCInitStructure);
-	TIM_OC2Init(TIM1, &TIM_OCInitStructure);
-	TIM_OC3Init(TIM1, &TIM_OCInitStructure);
-	TIM_OC4Init(TIM1, &TIM_OCInitStructure);
+	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1);
+	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2);
+	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3);
+	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4);
 
-	TIM_OC1PreloadConfig(TIM1, TIM_OCPreload_Enable);
-	TIM_OC2PreloadConfig(TIM1, TIM_OCPreload_Enable);
-	TIM_OC3PreloadConfig(TIM1, TIM_OCPreload_Enable);
-	TIM_OC4PreloadConfig(TIM1, TIM_OCPreload_Enable);
+	// Enable OC preload on all channels
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim1, TIM_CHANNEL_1);
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim1, TIM_CHANNEL_2);
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim1, TIM_CHANNEL_3);
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim1, TIM_CHANNEL_4);
 
-	TIM_OC1Init(TIM8, &TIM_OCInitStructure);
-	TIM_OC2Init(TIM8, &TIM_OCInitStructure);
-	TIM_OC3Init(TIM8, &TIM_OCInitStructure);
-	TIM_OC4Init(TIM8, &TIM_OCInitStructure);
-
-	TIM_OC1PreloadConfig(TIM8, TIM_OCPreload_Enable);
-	TIM_OC2PreloadConfig(TIM8, TIM_OCPreload_Enable);
-	TIM_OC3PreloadConfig(TIM8, TIM_OCPreload_Enable);
-	TIM_OC4PreloadConfig(TIM8, TIM_OCPreload_Enable);
-
-	// Automatic Output enable, Break, dead time and lock configuration
-	TIM_BDTRInitStructure.TIM_OSSRState = TIM_OSSRState_Enable;
-	TIM_BDTRInitStructure.TIM_OSSIState = TIM_OSSIState_Enable;
-	TIM_BDTRInitStructure.TIM_LOCKLevel = TIM_LOCKLevel_OFF;
-	TIM_BDTRInitStructure.TIM_DeadTime =  conf_general_calculate_deadtime(HW_DEAD_TIME_NSEC, SYSTEM_CORE_CLOCK);
-	TIM_BDTRInitStructure.TIM_AutomaticOutput = TIM_AutomaticOutput_Disable;
-
+	// Break and dead-time configuration
+	TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+	sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_ENABLE;
+	sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_ENABLE;
+	sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+	sBreakDeadTimeConfig.DeadTime = conf_general_calculate_deadtime(HW_DEAD_TIME_NSEC, SYSTEM_CORE_CLOCK);
+	sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
 #ifdef HW_USE_BRK
-	// Enable BRK function. Hardware will asynchronously stop any PWM activity upon an
-	// external fault signal. PWM outputs remain disabled until MCU is reset.
-	// software will catch the BRK flag to report the fault code
-	TIM_BDTRInitStructure.TIM_Break = TIM_Break_Enable;
+	sBreakDeadTimeConfig.BreakState = TIM_BREAK_ENABLE;
 	#ifdef BRK_HIGH
-	TIM_BDTRInitStructure.TIM_BreakPolarity = TIM_BreakPolarity_High;
+	sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
 	#else
-	TIM_BDTRInitStructure.TIM_BreakPolarity = TIM_BreakPolarity_Low;
+	sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_LOW;
 	#endif
-	
 #else
-	TIM_BDTRInitStructure.TIM_Break = TIM_Break_Disable;
+	sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
 	#ifdef BRK_HIGH
-	TIM_BDTRInitStructure.TIM_BreakPolarity = TIM_BreakPolarity_Low;
+	sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_LOW;
 	#else
-	TIM_BDTRInitStructure.TIM_BreakPolarity = TIM_BreakPolarity_High;
+	sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
 	#endif
 #endif
+	HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig);
 
-	TIM_BDTRConfig(TIM1, &TIM_BDTRInitStructure);
-	TIM_CCPreloadControl(TIM1, ENABLE);
-	TIM_ARRPreloadConfig(TIM1, ENABLE);
+	// Enable CC preload control
+	TIM1->CR2 |= TIM_CR2_CCPC;
 
-	TIM_BDTRConfig(TIM8, &TIM_BDTRInitStructure);
-	TIM_CCPreloadControl(TIM8, ENABLE);
-	TIM_ARRPreloadConfig(TIM8, ENABLE);
+	// ===== TIM8: Motor 2 PWM (center-aligned) =====
+	__HAL_RCC_TIM8_CLK_ENABLE();
 
-	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+	htim8.Instance = TIM8;
+	htim8.Init.Prescaler = 0;
+	htim8.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED1;
+	htim8.Init.Period = top;
+	htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim8.Init.RepetitionCounter = 0;
+	htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+	HAL_TIM_PWM_Init(&htim8);
 
-	TIM_TimeBaseStructure.TIM_Prescaler = 0;
-	TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;
-	TIM_TimeBaseStructure.TIM_Period = 0xFFFF;
-	TIM_TimeBaseStructure.TIM_ClockDivision = 0;
-	TIM_TimeBaseStructure.TIM_RepetitionCounter = 0;
-	TIM_TimeBaseInit(TIM2, &TIM_TimeBaseStructure);
+	HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_1);
+	HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_2);
+	HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_3);
+	HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_4);
 
-	TIM_OCInitStructure.TIM_OCMode = TIM_OCMode_PWM1;
-	TIM_OCInitStructure.TIM_OutputState = TIM_OutputState_Enable;
-	TIM_OCInitStructure.TIM_Pulse = 250;
-	TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_High;
-	TIM_OCInitStructure.TIM_OCNPolarity = TIM_OCNPolarity_High;
-	TIM_OCInitStructure.TIM_OCIdleState = TIM_OCIdleState_Set;
-	TIM_OCInitStructure.TIM_OCNIdleState = TIM_OCNIdleState_Set;
-	TIM_OC1Init(TIM2, &TIM_OCInitStructure);
-	TIM_OC1PreloadConfig(TIM2, TIM_OCPreload_Enable);
-	TIM_OC2Init(TIM2, &TIM_OCInitStructure);
-	TIM_OC2PreloadConfig(TIM2, TIM_OCPreload_Enable);
-	TIM_OC3Init(TIM2, &TIM_OCInitStructure);
-	TIM_OC3PreloadConfig(TIM2, TIM_OCPreload_Enable);
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim8, TIM_CHANNEL_1);
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim8, TIM_CHANNEL_2);
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim8, TIM_CHANNEL_3);
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim8, TIM_CHANNEL_4);
 
-	TIM_ARRPreloadConfig(TIM2, ENABLE);
-	TIM_CCPreloadControl(TIM2, ENABLE);
+	HAL_TIMEx_ConfigBreakDeadTime(&htim8, &sBreakDeadTimeConfig);
+	TIM8->CR2 |= TIM_CR2_CCPC;
 
-	// PWM outputs have to be enabled in order to trigger ADC on CCx
-	TIM_CtrlPWMOutputs(TIM2, ENABLE);
+	// ===== TIM2: ADC trigger timer (up-counting) =====
+	__HAL_RCC_TIM2_CLK_ENABLE();
 
+	htim2.Instance = TIM2;
+	htim2.Init.Prescaler = 0;
+	htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+	htim2.Init.Period = 0xFFFF;
+	htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+	HAL_TIM_PWM_Init(&htim2);
+
+	TIM_OC_InitTypeDef sConfigOC_TIM2 = {0};
+	sConfigOC_TIM2.OCMode = TIM_OCMODE_PWM1;
+	sConfigOC_TIM2.Pulse = 250;
+	sConfigOC_TIM2.OCPolarity = TIM_OCPOLARITY_HIGH;
+	sConfigOC_TIM2.OCFastMode = TIM_OCFAST_DISABLE;
+
+	HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC_TIM2, TIM_CHANNEL_1);
+	HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC_TIM2, TIM_CHANNEL_2);
+	HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC_TIM2, TIM_CHANNEL_3);
+
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim2, TIM_CHANNEL_1);
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim2, TIM_CHANNEL_2);
+	__HAL_TIM_ENABLE_OCxPRELOAD(&htim2, TIM_CHANNEL_3);
+
+	// TIM2 CC preload + PWM outputs for ADC triggering
+	TIM2->CR2 |= TIM_CR2_CCPC;
+	__HAL_TIM_MOE_ENABLE(&htim2);
+
+	// ===== Master-Slave Synchronization =====
 #if defined HW_HAS_DUAL_MOTORS || defined HW_HAS_DUAL_PARALLEL
-	// See: https://www.cnblogs.com/shangdawei/p/4758988.html
-	TIM_SelectOutputTrigger(TIM1, TIM_TRGOSource_Enable);
-	TIM_SelectMasterSlaveMode(TIM1, TIM_MasterSlaveMode_Enable);
-	TIM_SelectInputTrigger(TIM8, TIM_TS_ITR0);
-	TIM_SelectSlaveMode(TIM8, TIM_SlaveMode_Trigger);
-	TIM_SelectOutputTrigger(TIM8, TIM_TRGOSource_Enable);
-	TIM_SelectOutputTrigger(TIM8, TIM_TRGOSource_Update);
-	TIM_SelectInputTrigger(TIM2, TIM_TS_ITR1);
-	TIM_SelectSlaveMode(TIM2, TIM_SlaveMode_Reset);
+	// TIM1 master -> TIM8 slave (trigger), TIM8 master -> TIM2 slave (reset)
+	LL_TIM_SetTriggerOutput(TIM1, LL_TIM_TRGO_ENABLE);
+	LL_TIM_EnableMasterSlaveMode(TIM1);
+	LL_TIM_SetTriggerInput(TIM8, LL_TIM_TS_ITR0);
+	LL_TIM_SetSlaveMode(TIM8, LL_TIM_SLAVEMODE_TRIGGER);
+	LL_TIM_SetTriggerOutput(TIM8, LL_TIM_TRGO_UPDATE);
+	LL_TIM_SetTriggerInput(TIM2, LL_TIM_TS_ITR1);
+	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_RESET);
 #else
-	TIM_SelectOutputTrigger(TIM1, TIM_TRGOSource_Update);
-	TIM_SelectMasterSlaveMode(TIM1, TIM_MasterSlaveMode_Enable);
-	TIM_SelectInputTrigger(TIM2, TIM_TS_ITR0);
-	TIM_SelectSlaveMode(TIM2, TIM_SlaveMode_Reset);
+	// TIM1 master -> TIM2 slave (reset)
+	LL_TIM_SetTriggerOutput(TIM1, LL_TIM_TRGO_UPDATE);
+	LL_TIM_EnableMasterSlaveMode(TIM1);
+	LL_TIM_SetTriggerInput(TIM2, LL_TIM_TS_ITR0);
+	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_RESET);
 #endif
 
+	// Set counter initial values
 #ifdef HW_HAS_DUAL_MOTORS
 	TIM8->CNT = TIM1->ARR;
 #else
 	TIM8->CNT = 0;
 #endif
 	TIM1->CNT = 0;
-	TIM_Cmd(TIM1, ENABLE);
-	TIM_Cmd(TIM2, ENABLE);
+
+	// Enable timers
+	LL_TIM_EnableCounter(TIM1);
+	LL_TIM_EnableCounter(TIM2);
 
 	// Prevent all low side FETs from switching on
 	stop_pwm_hw((motor_all_state_t*)&m_motor_1);
@@ -328,16 +337,18 @@ static void timer_reinit(int f_zv) {
 	stop_pwm_hw((motor_all_state_t*)&m_motor_2);
 #endif
 
-	TIM_CtrlPWMOutputs(TIM1, ENABLE);
-	TIM_CtrlPWMOutputs(TIM8, ENABLE);
+	// Enable main outputs
+	__HAL_TIM_MOE_ENABLE(&htim1);
+	__HAL_TIM_MOE_ENABLE(&htim8);
 
 	TIMER_UPDATE_SAMP(MCPWM_FOC_CURRENT_SAMP_OFFSET);
 
 	// Enable CC2 interrupt, which will be fired in V0 and V7
-	TIM_ITConfig(TIM2, TIM_IT_CC2, ENABLE);
+	__HAL_TIM_ENABLE_IT(&htim2, TIM_IT_CC2);
 	utils_sys_unlock_cnt();
 
-	nvicEnableVector(TIM2_IRQn, 6);
+	HAL_NVIC_SetPriority(TIM2_IRQn, 6, 0);
+	HAL_NVIC_EnableIRQ(TIM2_IRQn);
 }
 
 static void init_audio_state(volatile mc_audio_state *s) {
@@ -390,85 +401,87 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 
 	virtual_motor_init(conf_m1);
 
-	TIM_DeInit(TIM1);
-	TIM_DeInit(TIM2);
-	TIM_DeInit(TIM8);
+	HAL_TIM_PWM_DeInit(&htim1);
+	HAL_TIM_PWM_DeInit(&htim2);
+	HAL_TIM_PWM_DeInit(&htim8);
 
 	TIM1->CNT = 0;
 	TIM2->CNT = 0;
 	TIM8->CNT = 0;
 
-	ADC_CommonInitTypeDef ADC_CommonInitStructure;
-	DMA_InitTypeDef DMA_InitStructure;
-	ADC_InitTypeDef ADC_InitStructure;
+	// ===== ADC + DMA Configuration (STM32F1 HAL) =====
+	// On F1: ADC1 uses DMA1_Channel1 (no stream concept, no triple mode)
+	// ADC1 = primary with DMA, ADC2 = dual mode simultaneous
+	__HAL_RCC_DMA1_CLK_ENABLE();
+	__HAL_RCC_ADC1_CLK_ENABLE();
+	__HAL_RCC_ADC2_CLK_ENABLE();
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+	__HAL_RCC_GPIOC_CLK_ENABLE();
 
-	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_DMA2 | RCC_AHB1Periph_GPIOA | RCC_AHB1Periph_GPIOC, ENABLE);
-	RCC_APB2PeriphClockCmd(RCC_APB2Periph_ADC1 | RCC_APB2Periph_ADC2 | RCC_APB2Periph_ADC3, ENABLE);
+	// DMA1 Channel1 for ADC1
+	hdma_adc.Instance = DMA1_Channel1;
+	hdma_adc.Init.Direction = DMA_PERIPH_TO_MEMORY;
+	hdma_adc.Init.PeriphInc = DMA_PINC_DISABLE;
+	hdma_adc.Init.MemInc = DMA_MINC_ENABLE;
+	hdma_adc.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+	hdma_adc.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+	hdma_adc.Init.Mode = DMA_CIRCULAR;
+	hdma_adc.Init.Priority = DMA_PRIORITY_HIGH;
+	HAL_DMA_Init(&hdma_adc);
 
-	dmaStreamAllocate(STM32_DMA_STREAM(STM32_DMA_STREAM_ID(2, 4)),
-					  5,
-					  (stm32_dmaisr_t)mcpwm_foc_adc_int_handler,
-					  (void *)0);
-
-	DMA_InitStructure.DMA_Channel = DMA_Channel_0;
-	DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)&ADC_Value;
-	DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&ADC->CDR;
-	DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralToMemory;
-	DMA_InitStructure.DMA_BufferSize = HW_ADC_CHANNELS;
-	DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
-	DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
-	DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_HalfWord;
-	DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_HalfWord;
-	DMA_InitStructure.DMA_Mode = DMA_Mode_Circular;
-	DMA_InitStructure.DMA_Priority = DMA_Priority_High;
-	DMA_InitStructure.DMA_FIFOMode = DMA_FIFOMode_Disable;
-	DMA_InitStructure.DMA_FIFOThreshold = DMA_FIFOThreshold_1QuarterFull;
-	DMA_InitStructure.DMA_MemoryBurst = DMA_MemoryBurst_Single;
-	DMA_InitStructure.DMA_PeripheralBurst = DMA_PeripheralBurst_Single;
-	DMA_Init(DMA2_Stream4, &DMA_InitStructure);
-
-	DMA_Cmd(DMA2_Stream4, ENABLE);
-
-	// Note: The half transfer interrupt is used as we already have all current and voltage
-	// samples by then and we can start processing them. Entering the interrupt earlier gives
-	// more cycles to finish it and update the timer before the next zero vector. This helps
-	// at higher f_zv. Only use this if the three first samples are current samples.
+	// DMA transfer complete/half-complete interrupt -> triggers FOC ISR
 #if ADC_IND_CURR1 < 3 && ADC_IND_CURR2 < 3 && ADC_IND_CURR3 < 3
-	DMA_ITConfig(DMA2_Stream4, DMA_IT_HT, ENABLE);
+	__HAL_DMA_ENABLE_IT(&hdma_adc, DMA_IT_HT);
 #else
-	DMA_ITConfig(DMA2_Stream4, DMA_IT_TC, ENABLE);
+	__HAL_DMA_ENABLE_IT(&hdma_adc, DMA_IT_TC);
 #endif
 
-	// Note that the ADC is running at 42MHz, which is higher than the
-	// specified 36MHz in the data sheet, but it works.
-	ADC_CommonInitStructure.ADC_Mode = ADC_TripleMode_RegSimult;
-	ADC_CommonInitStructure.ADC_Prescaler = ADC_Prescaler_Div2;
-	ADC_CommonInitStructure.ADC_DMAAccessMode = ADC_DMAAccessMode_1;
-	ADC_CommonInitStructure.ADC_TwoSamplingDelay = ADC_TwoSamplingDelay_5Cycles;
-	ADC_CommonInit(&ADC_CommonInitStructure);
+	HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 0);
+	HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 
-	ADC_InitStructure.ADC_Resolution = ADC_Resolution_12b;
-	ADC_InitStructure.ADC_ScanConvMode = ENABLE;
-	ADC_InitStructure.ADC_ContinuousConvMode = DISABLE;
-	ADC_InitStructure.ADC_ExternalTrigConvEdge = ADC_ExternalTrigConvEdge_Falling;
-	ADC_InitStructure.ADC_ExternalTrigConv = ADC_ExternalTrigConv_T2_CC2;
-	ADC_InitStructure.ADC_DataAlign = ADC_DataAlign_Right;
-	ADC_InitStructure.ADC_NbrOfConversion = HW_ADC_NBR_CONV;
+	// Configure ADC1 - regular conversions with external trigger from TIM2_CC2
+	ADC_HandleTypeDef hadc1 = {0};
+	hadc1.Instance = ADC1;
+	hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+	hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
+	hadc1.Init.ContinuousConvMode = DISABLE;
+	hadc1.Init.DiscontinuousConvMode = DISABLE;
+	hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_CC2;
+	hadc1.Init.NbrOfConversion = HW_ADC_NBR_CONV;
+	HAL_ADC_Init(&hadc1);
 
-	ADC_Init(ADC1, &ADC_InitStructure);
-	ADC_InitStructure.ADC_ExternalTrigConvEdge = ADC_ExternalTrigConvEdge_None;
-	ADC_InitStructure.ADC_ExternalTrigConv = 0;
-	ADC_Init(ADC2, &ADC_InitStructure);
-	ADC_Init(ADC3, &ADC_InitStructure);
+	// Configure ADC2 - simultaneous mode (slave, no external trigger)
+	ADC_HandleTypeDef hadc2 = {0};
+	hadc2.Instance = ADC2;
+	hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+	hadc2.Init.ScanConvMode = ADC_SCAN_ENABLE;
+	hadc2.Init.ContinuousConvMode = DISABLE;
+	hadc2.Init.DiscontinuousConvMode = DISABLE;
+	hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+	hadc2.Init.NbrOfConversion = HW_ADC_NBR_CONV;
+	HAL_ADC_Init(&hadc2);
 
-	ADC_TempSensorVrefintCmd(ENABLE);
-	ADC_MultiModeDMARequestAfterLastTransferCmd(ENABLE);
+	// Enable dual mode: ADC1 + ADC2 simultaneous regular
+	// On F1, dual mode is configured via ADC1->CR1 DUALMOD bits
+	ADC_MultiModeTypeDef multimode = {0};
+	multimode.Mode = ADC_DUALMODE_REGSIMULT;
+	HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode);
+
+	// Enable internal temperature sensor / vrefint
+	ADC1->CR2 |= ADC_CR2_TSVREFE;
 
 	hw_setup_adc_channels();
 
-	ADC_Cmd(ADC1, ENABLE);
-	ADC_Cmd(ADC2, ENABLE);
-	ADC_Cmd(ADC3, ENABLE);
+	// Start DMA transfer for ADC1
+	HAL_DMA_Start(&hdma_adc, (uint32_t)&ADC1->DR, (uint32_t)&ADC_Value, HW_ADC_CHANNELS);
+	__HAL_LINKDMA(&hadc1, DMA_Handle, hdma_adc);
+
+	// Enable ADC DMA request
+	ADC1->CR2 |= ADC_CR2_DMA;
+
+	// Enable ADCs
+	HAL_ADC_Start(&hadc2);
+	HAL_ADC_Start(&hadc1);
 
 	timer_reinit((int)m_motor_1.m_conf->foc_f_zv);
 
@@ -614,13 +627,13 @@ void mcpwm_foc_deinit(void) {
 		chThdSleepMilliseconds(1);
 	}
 
-	TIM_DeInit(TIM1);
-	TIM_DeInit(TIM2);
-	TIM_DeInit(TIM8);
-	ADC_DeInit();
-	DMA_DeInit(DMA2_Stream4);
-	nvicDisableVector(ADC_IRQn);
-	dmaStreamRelease(STM32_DMA_STREAM(STM32_DMA_STREAM_ID(2, 4)));
+	HAL_TIM_PWM_DeInit(&htim1);
+	HAL_TIM_PWM_DeInit(&htim2);
+	HAL_TIM_PWM_DeInit(&htim8);
+	HAL_ADC_DeInit(&(ADC_HandleTypeDef){.Instance = ADC1});
+	HAL_ADC_DeInit(&(ADC_HandleTypeDef){.Instance = ADC2});
+	HAL_DMA_DeInit(&hdma_adc);
+	HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
 }
 
 static volatile motor_all_state_t *get_motor_now(void) {
@@ -2512,10 +2525,10 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Start PWM on phase 1
 	stop_pwm_hw((motor_all_state_t*)&m_motor_1);
 	PHASE_FILTER_ON();
-	TIM_SelectOCxM(TIM1, TIM_Channel_1, TIM_OCMode_PWM1);
-	TIM_CCxCmd(TIM1, TIM_Channel_1, TIM_CCx_Enable);
-	TIM_CCxNCmd(TIM1, TIM_Channel_1, TIM_CCxN_Enable);
-	TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
+	LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
+	LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
+	LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1N);
+	LL_TIM_GenerateEvent_COM(TIM1);
 
 #ifdef HW_HAS_DUAL_MOTORS
 	float current_sum_m2[3] = {0.0, 0.0, 0.0};
@@ -2524,10 +2537,10 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 
 	stop_pwm_hw((motor_all_state_t*)&m_motor_2);
 	PHASE_FILTER_ON_M2();
-	TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_OCMode_PWM1);
-	TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
-	TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
-	TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
+	LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
+	LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
+	LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
+	LL_TIM_GenerateEvent_COM(TIM8);
 #endif
 
 	chThdSleep(1);
@@ -2836,8 +2849,8 @@ void mcpwm_foc_print_state(void) {
 void mcpwm_foc_tim_sample_int_handler(void) {
 	if (m_init_done) {
 		// Generate COM event here for synchronization
-		TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
-		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
+		LL_TIM_GenerateEvent_COM(TIM1);
+		LL_TIM_GenerateEvent_COM(TIM8);
 
 		virtual_motor_int_handler(
 				m_motor_1.m_motor_state.v_alpha,
@@ -2992,7 +3005,7 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 
 #ifdef AD2S1205_SAMPLE_GPIO
 	// force a position sample in the AD2S1205 resolver IC (falling edge)
-	palClearPad(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);
+	hal_gpio_clear(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);
 #endif
 
 	float curr0 = 0;
@@ -3847,7 +3860,7 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 
 #ifdef AD2S1205_SAMPLE_GPIO
 	// Release sample in the AD2S1205 resolver IC.
-	palSetPad(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);
+	hal_gpio_set(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);
 #endif
 
 	FOC_PROFILE_LINE();
@@ -5149,34 +5162,35 @@ static void stop_pwm_hw(motor_all_state_t *motor) {
 	motor->m_iq_set = 0.0;
 
 	if (motor == &m_motor_1) {
-		TIM_SelectOCxM(TIM1, TIM_Channel_1, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM1, TIM_Channel_1, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM1, TIM_Channel_1, TIM_CCxN_Disable);
+		// Force inactive on all channels, enable CH, disable CHN
+		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
+		LL_TIM_CC_DisableChannel(TIM1, LL_TIM_CHANNEL_CH1N);
 
-		TIM_SelectOCxM(TIM1, TIM_Channel_2, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM1, TIM_Channel_2, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM1, TIM_Channel_2, TIM_CCxN_Disable);
+		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2);
+		LL_TIM_CC_DisableChannel(TIM1, LL_TIM_CHANNEL_CH2N);
 
-		TIM_SelectOCxM(TIM1, TIM_Channel_3, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM1, TIM_Channel_3, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM1, TIM_Channel_3, TIM_CCxN_Disable);
+		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3);
+		LL_TIM_CC_DisableChannel(TIM1, LL_TIM_CHANNEL_CH3N);
 
-		TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
+		LL_TIM_GenerateEvent_COM(TIM1);
 
 #ifdef HW_HAS_DUAL_PARALLEL
-		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Disable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
+		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Disable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
+		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Disable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
+		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
 
-		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
+		LL_TIM_GenerateEvent_COM(TIM8);
 #endif
 
 #ifdef HW_HAS_DRV8313
@@ -5184,19 +5198,19 @@ static void stop_pwm_hw(motor_all_state_t *motor) {
 #endif
 		PHASE_FILTER_OFF();
 	} else {
-		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Disable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
+		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Disable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
+		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Disable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
+		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
 
-		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
+		LL_TIM_GenerateEvent_COM(TIM8);
 
 #ifdef HW_HAS_DRV8313_2
 		DISABLE_BR_2();
@@ -5210,30 +5224,30 @@ static void stop_pwm_hw(motor_all_state_t *motor) {
 
 static void start_pwm_hw(motor_all_state_t *motor) {
 	if (motor == &m_motor_1) {
-		TIM_SelectOCxM(TIM1, TIM_Channel_1, TIM_OCMode_PWM1);
-		TIM_CCxCmd(TIM1, TIM_Channel_1, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM1, TIM_Channel_1, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1N);
 
-		TIM_SelectOCxM(TIM1, TIM_Channel_2, TIM_OCMode_PWM1);
-		TIM_CCxCmd(TIM1, TIM_Channel_2, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM1, TIM_Channel_2, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_PWM1);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2N);
 
-		TIM_SelectOCxM(TIM1, TIM_Channel_3, TIM_OCMode_PWM1);
-		TIM_CCxCmd(TIM1, TIM_Channel_3, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM1, TIM_Channel_3, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_PWM1);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3N);
 
 #ifdef HW_HAS_DUAL_PARALLEL
-		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_OCMode_PWM1);
-		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_OCMode_PWM1);
-		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_PWM1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_OCMode_PWM1);
-		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_PWM1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
 
 		PHASE_FILTER_ON_M2();
 
@@ -5243,24 +5257,24 @@ static void start_pwm_hw(motor_all_state_t *motor) {
 #endif
 
 		// Generate COM event in ADC interrupt to get better synchronization
-		//	TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
+		//	LL_TIM_GenerateEvent_COM(TIM1);
 
 #ifdef HW_HAS_DRV8313
 		ENABLE_BR();
 #endif
 		PHASE_FILTER_ON();
 	} else {
-		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_OCMode_PWM1);
-		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_OCMode_PWM1);
-		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_PWM1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_OCMode_PWM1);
-		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_PWM1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
 
 #ifdef HW_HAS_DRV8313_2
 		ENABLE_BR_2();
@@ -5273,19 +5287,19 @@ static void start_pwm_hw(motor_all_state_t *motor) {
 
 static void full_brake_hw(motor_all_state_t *motor) {
 	if (motor == &m_motor_1) {
-		TIM_SelectOCxM(TIM1, TIM_Channel_1, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM1, TIM_Channel_1, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM1, TIM_Channel_1, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1N);
 
-		TIM_SelectOCxM(TIM1, TIM_Channel_2, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM1, TIM_Channel_2, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM1, TIM_Channel_2, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2N);
 
-		TIM_SelectOCxM(TIM1, TIM_Channel_3, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM1, TIM_Channel_3, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM1, TIM_Channel_3, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3);
+		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3N);
 
-		TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
+		LL_TIM_GenerateEvent_COM(TIM1);
 		PHASE_FILTER_ON();
 
 #ifdef HW_HAS_DRV8313
@@ -5293,19 +5307,19 @@ static void full_brake_hw(motor_all_state_t *motor) {
 #endif
 
 #ifdef HW_HAS_DUAL_PARALLEL
-		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
 
-		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
+		LL_TIM_GenerateEvent_COM(TIM8);
 		PHASE_FILTER_ON_M2();
 
 #ifdef HW_HAS_DRV8313_2
@@ -5313,19 +5327,19 @@ static void full_brake_hw(motor_all_state_t *motor) {
 #endif
 #endif
 	} else {
-		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
 
-		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_ForcedAction_InActive);
-		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
-		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Enable);
+		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
+		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
 
-		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
+		LL_TIM_GenerateEvent_COM(TIM8);
 		PHASE_FILTER_ON_M2();
 
 #ifdef HW_HAS_DRV8313_2

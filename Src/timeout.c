@@ -18,6 +18,7 @@
     */
 
 #include "timeout.h"
+#include "hwconf/hal_gpio.h"
 #include "mc_interface.h"
 #include "stm32f4xx_conf.h"
 #include "shutdown.h"
@@ -199,7 +200,7 @@ static THD_FUNCTION(timeout_thread, arg) {
 
 		switch (timeout_kill_sw_mode) {
 		case KILL_SW_MODE_PPM_LOW:
-			kill_sw = !palReadPad(HW_ICU_GPIO, HW_ICU_PIN);
+			kill_sw = !hal_gpio_read(HW_ICU_GPIO, HW_ICU_PIN);
 			break;
 
 		case KILL_SW_MODE_PPM_HIGH:

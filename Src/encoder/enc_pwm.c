@@ -28,6 +28,7 @@
 #include "timer.h"
 #include "servo_dec.h"
 #include "pwm_servo.h"
+#include "hwconf/hal_gpio.h"
 
 #include <math.h>
 #include <string.h>
@@ -85,7 +86,7 @@ bool enc_pwm_init(bool update_abi) {
 	}
 
 	icuStart(&HW_ICU_DEV, &m_icucfg);
-	palSetPadMode(HW_ICU_GPIO, HW_ICU_PIN, PAL_MODE_ALTERNATE(HW_ICU_GPIO_AF));
+	hal_gpio_init_af(HW_ICU_GPIO, HW_ICU_PIN, HW_ICU_GPIO_AF);
 	icuStartCapture(&HW_ICU_DEV);
 	icuEnableNotifications(&HW_ICU_DEV);
 

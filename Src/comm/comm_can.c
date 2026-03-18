@@ -46,6 +46,7 @@
 #ifdef USE_LISPBM
 #include "lispif.h"
 #endif
+#include "hwconf/hal_gpio.h"
 
 // Settings
 #define RX_FRAMES_SIZE	50
@@ -151,26 +152,14 @@ void comm_can_init(void) {
 	chMtxObjectInit(&can_mtx);
 	chMtxObjectInit(&can_rx_mtx);
 
-	palSetPadMode(HW_CANRX_PORT, HW_CANRX_PIN,
-			PAL_MODE_ALTERNATE(HW_CAN_GPIO_AF) |
-			PAL_STM32_OTYPE_PUSHPULL |
-			PAL_STM32_OSPEED_MID1);
-	palSetPadMode(HW_CANTX_PORT, HW_CANTX_PIN,
-			PAL_MODE_ALTERNATE(HW_CAN_GPIO_AF) |
-			PAL_STM32_OTYPE_PUSHPULL |
-			PAL_STM32_OSPEED_MID1);
+	hal_gpio_init_af(HW_CANRX_PORT, HW_CANRX_PIN, HW_CAN_GPIO_AF);
+	hal_gpio_init_af(HW_CANTX_PORT, HW_CANTX_PIN, HW_CAN_GPIO_AF);
 
 #ifdef HW_CAN2_DEV
 	memset(&m_rx_state2, 0, sizeof(m_rx_state2));
 
-	palSetPadMode(HW_CAN2_RX_PORT, HW_CAN2_RX_PIN,
-			PAL_MODE_ALTERNATE(HW_CAN2_GPIO_AF) |
-			PAL_STM32_OTYPE_PUSHPULL |
-			PAL_STM32_OSPEED_MID1);
-	palSetPadMode(HW_CAN2_TX_PORT, HW_CAN2_TX_PIN,
-			PAL_MODE_ALTERNATE(HW_CAN2_GPIO_AF) |
-			PAL_STM32_OTYPE_PUSHPULL |
-			PAL_STM32_OSPEED_MID1);
+	hal_gpio_init_af(HW_CAN2_RX_PORT, HW_CAN2_RX_PIN, HW_CAN2_GPIO_AF);
+	hal_gpio_init_af(HW_CAN2_TX_PORT, HW_CAN2_TX_PIN, HW_CAN2_GPIO_AF);
 
 	canStart(&CAND1, &cancfg);
 	canStart(&CAND2, &cancfg);

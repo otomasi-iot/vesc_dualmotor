@@ -25,6 +25,7 @@
 #include "hw.h"
 #include "packet.h"
 #include "commands.h"
+#include "hwconf/hal_gpio.h"
 
 // Settings
 
@@ -155,10 +156,8 @@ void app_uartcomm_start(UART_PORT port_number) {
 	sdStart(serialPortDriverTx[port_number], &uart_cfg[port_number]);
 	uart_is_running[port_number] = true;
 
-	palSetPadMode(TxGpioPort[port_number], TxGpioPin[port_number], PAL_MODE_ALTERNATE(gpioAF[port_number]) |
-			PAL_STM32_OSPEED_HIGHEST | PAL_STM32_PUDR_PULLUP);
-	palSetPadMode(RxGpioPort[port_number], RxGpioPin[port_number], PAL_MODE_ALTERNATE(gpioAF[port_number]) |
-			PAL_STM32_OSPEED_HIGHEST | PAL_STM32_PUDR_PULLUP);
+	hal_gpio_init_af(TxGpioPort[port_number], TxGpioPin[port_number], gpioAF[port_number]);
+	hal_gpio_init_af(RxGpioPort[port_number], RxGpioPin[port_number], gpioAF[port_number]);
 	pins_enabled[port_number] = true;
 }
 
@@ -170,8 +169,8 @@ void app_uartcomm_stop(UART_PORT port_number) {
 	if (uart_is_running[port_number]) {
 		sdStop(serialPortDriverRx[port_number]);
 		sdStop(serialPortDriverTx[port_number]);
-		palSetPadMode(TxGpioPort[port_number], TxGpioPin[port_number], PAL_MODE_INPUT_PULLUP);
-		palSetPadMode(RxGpioPort[port_number], RxGpioPin[port_number], PAL_MODE_INPUT_PULLUP);
+		hal_gpio_init_input_pullup(TxGpioPort[port_number], TxGpioPin[port_number]);
+		hal_gpio_init_input_pullup(RxGpioPort[port_number], RxGpioPin[port_number]);
 		uart_is_running[port_number] = false;
 	}
 	// Notice that the processing thread is kept running in case this call is made from it.
@@ -205,16 +204,12 @@ void app_uartcomm_configure(uint32_t baudrate, bool enabled, UART_PORT port_numb
 		sdStart(serialPortDriverRx[port_number], &uart_cfg[port_number]);
 
 		if (enabled && !pins_enabled[port_number]) {
-			palSetPadMode(TxGpioPort[port_number], TxGpioPin[port_number], PAL_MODE_ALTERNATE(gpioAF[port_number]) |
-					PAL_STM32_OSPEED_HIGHEST |
-					PAL_STM32_PUDR_PULLUP);
-			palSetPadMode(RxGpioPort[port_number], RxGpioPin[port_number], PAL_MODE_ALTERNATE(gpioAF[port_number]) |
-					PAL_STM32_OSPEED_HIGHEST |
-					PAL_STM32_PUDR_PULLUP);
+			hal_gpio_init_af(TxGpioPort[port_number], TxGpioPin[port_number], gpioAF[port_number]);
+			hal_gpio_init_af(RxGpioPort[port_number], RxGpioPin[port_number], gpioAF[port_number]);
 			pins_enabled[port_number] = true;
 		} else if (!enabled && pins_enabled[port_number]) {
-			palSetPadMode(TxGpioPort[port_number], TxGpioPin[port_number], PAL_MODE_INPUT);
-			palSetPadMode(RxGpioPort[port_number], RxGpioPin[port_number], PAL_MODE_INPUT);
+			hal_gpio_init_input(TxGpioPort[port_number], TxGpioPin[port_number]);
+			hal_gpio_init_input(RxGpioPort[port_number], RxGpioPin[port_number]);
 			pins_enabled[port_number] = false;
 		}
 	}

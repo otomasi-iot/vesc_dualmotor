@@ -31,6 +31,7 @@
 #include "comm_can.h"
 #include "hw.h"
 #include <math.h>
+#include "hwconf/hal_gpio.h"
 
 // Settings
 #define PEDAL_INPUT_TIMEOUT				0.2
@@ -133,8 +134,8 @@ void pas_event_handler(void) {
 	static float period_filtered = 0;
 	static int32_t correct_direction_counter = 0;
 
-	uint8_t PAS1_level = palReadPad(HW_PAS1_PORT, HW_PAS1_PIN);
-	uint8_t PAS2_level = palReadPad(HW_PAS2_PORT, HW_PAS2_PIN);
+	uint8_t PAS1_level = hal_gpio_read(HW_PAS1_PORT, HW_PAS1_PIN);
+	uint8_t PAS2_level = hal_gpio_read(HW_PAS2_PORT, HW_PAS2_PIN);
 
 	new_state = PAS2_level * 2 + PAS1_level;
 	direction_qem = (float) QEM[old_state * 4 + new_state];
@@ -184,8 +185,8 @@ static THD_FUNCTION(pas_thread, arg) {
 	chRegSetThreadName("APP_PAS");
 
 #ifdef HW_PAS1_PORT
-	palSetPadMode(HW_PAS1_PORT, HW_PAS1_PIN, PAL_MODE_INPUT_PULLUP);
-	palSetPadMode(HW_PAS2_PORT, HW_PAS2_PIN, PAL_MODE_INPUT_PULLUP);
+	hal_gpio_init_input_pullup(HW_PAS1_PORT, HW_PAS1_PIN);
+	hal_gpio_init_input_pullup(HW_PAS2_PORT, HW_PAS2_PIN);
 #endif
 
 	is_running = true;
