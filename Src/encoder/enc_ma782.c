@@ -24,8 +24,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "ch.h"
-#include "hal.h"
+#include "stm32f1xx_hal.h"
 #include "mc_interface.h"
 #include "utils_math.h"
 #include "spi_bb.h"

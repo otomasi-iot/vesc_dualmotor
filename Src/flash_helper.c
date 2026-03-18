@@ -19,18 +19,8 @@
 
 #pragma GCC optimize ("Os")
 
-#include "flash_helper.h"
-#include "ch.h"
-#include "hal.h"
-#include "hwconf/hal_gpio.h"
-#include "stm32f4xx_conf.h"
-#include "utils_sys.h"
-#include "mc_interface.h"
-#include "timeout.h"
-#include "hw.h"
-#include "crc.h"
-#include "buffer.h"
-#include <string.h>
+// Legacy STM32F4 flash helper (not used in STM32F103 PlatformIO build).
+// Kept for reference; the active implementation for F103 is flash_helper_f103.c
 
 #ifdef USE_LISPBM
 #include "lispif.h"

@@ -1,0 +1,23 @@
+{
+  "name": "rtos-local",
+  "version": "0.0.0",
+  "build": {
+    "srcDir": ".",
+    "srcFilter": [
+      "-<*>",
+      "+<croutine.c>",
+      "+<event_groups.c>",
+      "+<list.c>",
+      "+<queue.c>",
+      "+<stream_buffer.c>",
+      "+<tasks.c>",
+      "+<timers.c>",
+
+      "+<portable/GCC/ARM_CM3/port.c>",
+      "+<portable/MemMang/heap_4.c>",
+
+      "+<CMSIS_RTOS_V2/cmsis_os2.c>"
+    ]
+  }
+}
+

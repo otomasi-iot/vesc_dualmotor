@@ -154,17 +154,24 @@ static void send_sample_block(int ind, int offset);
 static void(*pwn_done_func)(void) = 0;
 static void(* volatile send_func_sample)(unsigned char *data, unsigned int len) = 0;
 
-// Threads
-static THD_WORKING_AREA(timer_thread_wa, 512);
+// Threads — CMSIS-RTOS2 / FreeRTOS static allocation
 static THD_FUNCTION(timer_thread, arg);
-static THD_WORKING_AREA(sample_send_thread_wa, 512);
+static StaticTask_t timer_thread_tcb;
+static StackType_t timer_thread_stack[512];
+
 static THD_FUNCTION(sample_send_thread, arg);
-static thread_t *sample_send_tp;
-static THD_WORKING_AREA(fault_stop_thread_wa, 512);
+static StaticTask_t sample_send_thread_tcb;
+static StackType_t sample_send_thread_stack[512];
+static TaskHandle_t sample_send_tp;
+
 static THD_FUNCTION(fault_stop_thread, arg);
-static thread_t *fault_stop_tp;
-static THD_WORKING_AREA(stat_thread_wa, 512);
+static StaticTask_t fault_stop_thread_tcb;
+static StackType_t fault_stop_thread_stack[512];
+static TaskHandle_t fault_stop_tp;
+
 static THD_FUNCTION(stat_thread, arg);
+static StaticTask_t stat_thread_tcb;
+static StackType_t stat_thread_stack[512];
 
 void mc_interface_init(void) {
 	memset((void*)&m_motor_1, 0, sizeof(motor_if_state_t));
@@ -196,10 +203,45 @@ void mc_interface_init(void) {
 	mc_interface_stat_reset();
 
 	// Start threads
-	chThdCreateStatic(timer_thread_wa, sizeof(timer_thread_wa), NORMALPRIO, timer_thread, NULL);
-	chThdCreateStatic(sample_send_thread_wa, sizeof(sample_send_thread_wa), NORMALPRIO - 1, sample_send_thread, NULL);
-	chThdCreateStatic(fault_stop_thread_wa, sizeof(fault_stop_thread_wa), HIGHPRIO - 3, fault_stop_thread, NULL);
-	chThdCreateStatic(stat_thread_wa, sizeof(stat_thread_wa), NORMALPRIO, stat_thread, NULL);
+	osThreadNew((osThreadFunc_t)timer_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "mc_timer",
+			.priority = osPriorityNormal,
+			.stack_mem = timer_thread_stack,
+			.stack_size = sizeof(timer_thread_stack),
+			.cb_mem = &timer_thread_tcb,
+			.cb_size = sizeof(timer_thread_tcb)
+		});
+
+	osThreadNew((osThreadFunc_t)sample_send_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "mc_sample",
+			.priority = osPriorityBelowNormal,
+			.stack_mem = sample_send_thread_stack,
+			.stack_size = sizeof(sample_send_thread_stack),
+			.cb_mem = &sample_send_thread_tcb,
+			.cb_size = sizeof(sample_send_thread_tcb)
+		});
+
+	osThreadNew((osThreadFunc_t)fault_stop_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "mc_fault",
+			.priority = osPriorityAboveNormal,
+			.stack_mem = fault_stop_thread_stack,
+			.stack_size = sizeof(fault_stop_thread_stack),
+			.cb_mem = &fault_stop_thread_tcb,
+			.cb_size = sizeof(fault_stop_thread_tcb)
+		});
+
+	osThreadNew((osThreadFunc_t)stat_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "mc_stat",
+			.priority = osPriorityNormal,
+			.stack_mem = stat_thread_stack,
+			.stack_size = sizeof(stat_thread_stack),
+			.cb_mem = &stat_thread_tcb,
+			.cb_size = sizeof(stat_thread_tcb)
+		});
 
 	int motor_old = mc_interface_get_motor_thread();
 	mc_interface_select_motor_thread(1);
@@ -1500,7 +1542,7 @@ void mc_interface_sample_print_data(debug_sampling_mode mode, uint16_t len, uint
 	}
 
 	if (mode == DEBUG_SAMPLING_SEND_LAST_SAMPLES) {
-		chEvtSignal(sample_send_tp, (eventmask_t) 1);
+		xTaskNotifyGive(sample_send_tp);
 	} else if (mode == DEBUG_SAMPLING_SEND_SINGLE_SAMPLE) {
 		send_sample_block(len, m_sample_offset_last);
 	} else {
@@ -1849,11 +1891,11 @@ void mc_interface_fault_stop(mc_fault_code fault, bool is_second_motor, bool is_
 	m_fault_data.is_second_motor = is_second_motor;
 
 	if (is_isr) {
-		chSysLockFromISR();
-		chEvtSignalI(fault_stop_tp, (eventmask_t) 1);
-		chSysUnlockFromISR();
+		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+		vTaskNotifyGiveFromISR(fault_stop_tp, &xHigherPriorityTaskWoken);
+		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 	} else {
-		chEvtSignal(fault_stop_tp, (eventmask_t) 1);
+		xTaskNotifyGive(fault_stop_tp);
 	}
 }
 
@@ -2035,9 +2077,11 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 		if (m_sample_now == m_sample_len) {
 			m_sample_mode = DEBUG_SAMPLING_OFF;
 			m_sample_mode_last = DEBUG_SAMPLING_NOW;
-			chSysLockFromISR();
-			chEvtSignalI(sample_send_tp, (eventmask_t) 1);
-			chSysUnlockFromISR();
+			{
+				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+				vTaskNotifyGiveFromISR(sample_send_tp, &xHigherPriorityTaskWoken);
+				portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+			}
 		} else {
 			sample = true;
 		}
@@ -2051,9 +2095,11 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 		if (m_sample_now == m_sample_len) {
 			m_sample_mode_last = m_sample_mode;
 			m_sample_mode = DEBUG_SAMPLING_OFF;
-			chSysLockFromISR();
-			chEvtSignalI(sample_send_tp, (eventmask_t) 1);
-			chSysUnlockFromISR();
+			{
+				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+				vTaskNotifyGiveFromISR(sample_send_tp, &xHigherPriorityTaskWoken);
+				portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+			}
 		}
 		break;
 
@@ -2074,9 +2120,11 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 			sample = false;
 
 			if (m_sample_mode == DEBUG_SAMPLING_TRIGGER_START) {
-				chSysLockFromISR();
-				chEvtSignalI(sample_send_tp, (eventmask_t) 1);
-				chSysUnlockFromISR();
+				{
+					BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+					vTaskNotifyGiveFromISR(sample_send_tp, &xHigherPriorityTaskWoken);
+					portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+				}
 			}
 
 			m_sample_mode = DEBUG_SAMPLING_OFF;
@@ -2104,9 +2152,11 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 			sample = false;
 
 			if (m_sample_mode == DEBUG_SAMPLING_TRIGGER_FAULT) {
-				chSysLockFromISR();
-				chEvtSignalI(sample_send_tp, (eventmask_t) 1);
-				chSysUnlockFromISR();
+				{
+					BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+					vTaskNotifyGiveFromISR(sample_send_tp, &xHigherPriorityTaskWoken);
+					portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+				}
 			}
 
 			m_sample_mode = DEBUG_SAMPLING_OFF;
@@ -2876,10 +2926,10 @@ static THD_FUNCTION(sample_send_thread, arg) {
 	(void)arg;
 
 	chRegSetThreadName("SampleSender");
-	sample_send_tp = chThdGetSelfX();
+	sample_send_tp = xTaskGetCurrentTaskHandle();
 
 	for(;;) {
-		chEvtWaitAny((eventmask_t) 1);
+		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
 		int len = 0;
 		int offset = 0;
@@ -2914,10 +2964,10 @@ static THD_FUNCTION(fault_stop_thread, arg) {
 	(void)arg;
 
 	chRegSetThreadName("Fault Stop");
-	fault_stop_tp = chThdGetSelfX();
+	fault_stop_tp = xTaskGetCurrentTaskHandle();
 
 	for(;;) {
-		chEvtWaitAny((eventmask_t) 1);
+		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
 		fault_data_local fault_data_copy = m_fault_data;
 

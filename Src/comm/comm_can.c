@@ -22,9 +22,8 @@
 #include <string.h>
 #include <math.h>
 #include "comm_can.h"
-#include "ch.h"
-#include "hal.h"
-#include "stm32f4xx_conf.h"
+#include "cmsis_os2.h"
+#include "stm32f1xx_hal.h"
 #include "datatypes.h"
 #include "buffer.h"
 #include "mc_interface.h"
@@ -47,6 +46,7 @@
 #include "lispif.h"
 #endif
 #include "hwconf/hal_gpio.h"
+#include "comm_can_hal.h"
 
 // Settings
 #define RX_FRAMES_SIZE	50
@@ -61,23 +61,39 @@ typedef struct {
 	int frame_write;
 } rx_state;
 
-// Threads
-__attribute__((section(".ram4"))) static THD_WORKING_AREA(cancom_read_thread_wa, 256);
-__attribute__((section(".ram4"))) static THD_WORKING_AREA(cancom_process_thread_wa, 2048);
-__attribute__((section(".ram4"))) static THD_WORKING_AREA(cancom_status_thread_wa, 512);
-__attribute__((section(".ram4"))) static THD_WORKING_AREA(cancom_status_thread_2_wa, 512);
-static THD_FUNCTION(cancom_read_thread, arg);
-static THD_FUNCTION(cancom_status_thread, arg);
-static THD_FUNCTION(cancom_status_thread_2, arg);
-static THD_FUNCTION(cancom_process_thread, arg);
-
+// Threads - FreeRTOS CMSIS v2 Buffers
+static StaticTask_t cancom_read_thread_buffer;
+static StackType_t cancom_read_thread_stack[256];
+static StaticTask_t cancom_process_thread_buffer;
+static StackType_t cancom_process_thread_stack[2048];
+static StaticTask_t cancom_status_thread_buffer;
+static StackType_t cancom_status_thread_stack[512];
+static StaticTask_t cancom_status_thread_2_buffer;
+static StackType_t cancom_status_thread_2_stack[512];
 #ifdef HW_HAS_DUAL_MOTORS
-static THD_FUNCTION(cancom_status_internal_thread, arg);
-static THD_WORKING_AREA(cancom_status_internal_thread_wa, 512);
+static StaticTask_t cancom_status_internal_thread_buffer;
+static StackType_t cancom_status_internal_thread_stack[512];
 #endif
 
-static mutex_t can_mtx;
-static mutex_t can_rx_mtx;
+// Forward declarations
+static void *cancom_read_thread(void *arg);
+static void *cancom_status_thread(void *arg);
+static void *cancom_status_thread_2(void *arg);
+static void *cancom_process_thread(void *arg);
+#ifdef HW_HAS_DUAL_MOTORS
+static void *cancom_status_internal_thread(void *arg);
+#endif
+
+// FreeRTOS CMSIS v2 Synchronization
+static StaticSemaphore_t can_mtx_buffer;
+static osMutexId_t can_mtx = NULL;
+static StaticSemaphore_t can_rx_mtx_buffer;
+static osMutexId_t can_rx_mtx = NULL;
+
+// Event flags for thread signaling
+static StaticEventGroup_t can_process_event_buffer;
+static osEventFlagsId_t can_process_event = NULL;
+#define CAN_RX_FRAME_AVAILABLE 0x01
 static uint8_t rx_buffer[RX_BUFFER_NUM][RX_BUFFER_SIZE];
 static int rx_buffer_offset[RX_BUFFER_NUM];
 static volatile unsigned int rx_buffer_last_id;
@@ -119,6 +135,14 @@ static CANConfig cancfg = {
 		CAN_BTR_TS1(9) | CAN_BTR_BRP(5)
 };
 
+// STM32 HAL CAN Drivers (replacing ChibiOS CANDriver)
+#ifdef HW_CAN_DEV
+static can_hal_driver_t can1_driver = {0};
+#endif
+#ifdef HW_CAN2_DEV
+static can_hal_driver_t can2_driver = {0};
+#endif
+
 // Private functions
 static void set_timing(int brp, int ts1, int ts2);
 #if CAN_ENABLE
@@ -149,8 +173,21 @@ void comm_can_init(void) {
 #if CAN_ENABLE
 	memset(&m_rx_state, 0, sizeof(m_rx_state));
 
-	chMtxObjectInit(&can_mtx);
-	chMtxObjectInit(&can_rx_mtx);
+	// Initialize FreeRTOS CMSIS v2 mutexes
+	if (!can_mtx) {
+		const osMutexAttr_t can_mtx_attr = {.name = "can_mtx"};
+		can_mtx = osMutexNew(&can_mtx_attr);
+	}
+	if (!can_rx_mtx) {
+		const osMutexAttr_t can_rx_mtx_attr = {.name = "can_rx_mtx"};
+		can_rx_mtx = osMutexNew(&can_rx_mtx_attr);
+	}
+
+	// Initialize event flags for thread signaling
+	if (!can_process_event) {
+		const osEventFlagsAttr_t event_attr = {.name = "can_process"};
+		can_process_event = osEventFlagsNew(&event_attr);
+	}
 
 	hal_gpio_init_af(HW_CANRX_PORT, HW_CANRX_PIN, HW_CAN_GPIO_AF);
 	hal_gpio_init_af(HW_CANTX_PORT, HW_CANTX_PIN, HW_CAN_GPIO_AF);
@@ -161,31 +198,70 @@ void comm_can_init(void) {
 	hal_gpio_init_af(HW_CAN2_RX_PORT, HW_CAN2_RX_PIN, HW_CAN2_GPIO_AF);
 	hal_gpio_init_af(HW_CAN2_TX_PORT, HW_CAN2_TX_PIN, HW_CAN2_GPIO_AF);
 
-	canStart(&CAND1, &cancfg);
-	canStart(&CAND2, &cancfg);
+	// Initialize CAN peripherals using HAL
+	can_hal_init(&can1_driver, CAN1, &cancfg);
+	can_hal_init(&can2_driver, CAN2, &cancfg);
+	can_hal_start(&can1_driver);
+	can_hal_start(&can2_driver);
 #else
-	// CAND1 must be running for CAND2 to work
-	CANDriver *cand = &HW_CAN_DEV;
-	if (cand == &CAND2) {
-		canStart(&CAND1, &cancfg);
-	}
-
-	canStart(&HW_CAN_DEV, &cancfg);
+	// Initialize single CAN peripheral
+	can_hal_init(&can1_driver, CAN1, &cancfg);
+	can_hal_start(&can1_driver);
 #endif
 
 	canard_driver_init();
 
-	chThdCreateStatic(cancom_read_thread_wa, sizeof(cancom_read_thread_wa), NORMALPRIO + 1,
-			cancom_read_thread, NULL);
-	chThdCreateStatic(cancom_status_thread_wa, sizeof(cancom_status_thread_wa), NORMALPRIO,
-			cancom_status_thread, NULL);
-	chThdCreateStatic(cancom_status_thread_2_wa, sizeof(cancom_status_thread_2_wa), NORMALPRIO,
-			cancom_status_thread_2, NULL);
-	chThdCreateStatic(cancom_process_thread_wa, sizeof(cancom_process_thread_wa), NORMALPRIO,
-			cancom_process_thread, NULL);
+	// Create FreeRTOS CAN threads with osThreadNew
+	osThreadNew((osThreadFunc_t)cancom_read_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "can_read",
+			.priority = osPriorityAboveNormal,  // High priority for real-time RX
+			.stack_mem = cancom_read_thread_stack,
+			.stack_size = sizeof(cancom_read_thread_stack),
+			.cb_mem = &cancom_read_thread_buffer,
+			.cb_size = sizeof(cancom_read_thread_buffer)
+		});
+
+	osThreadNew((osThreadFunc_t)cancom_status_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "can_status",
+			.priority = osPriorityNormal,
+			.stack_mem = cancom_status_thread_stack,
+			.stack_size = sizeof(cancom_status_thread_stack),
+			.cb_mem = &cancom_status_thread_buffer,
+			.cb_size = sizeof(cancom_status_thread_buffer)
+		});
+
+	osThreadNew((osThreadFunc_t)cancom_status_thread_2, NULL,
+		&(const osThreadAttr_t){
+			.name = "can_status2",
+			.priority = osPriorityNormal,
+			.stack_mem = cancom_status_thread_2_stack,
+			.stack_size = sizeof(cancom_status_thread_2_stack),
+			.cb_mem = &cancom_status_thread_2_buffer,
+			.cb_size = sizeof(cancom_status_thread_2_buffer)
+		});
+
+	osThreadNew((osThreadFunc_t)cancom_process_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "can_process",
+			.priority = osPriorityNormal,
+			.stack_mem = cancom_process_thread_stack,
+			.stack_size = sizeof(cancom_process_thread_stack),
+			.cb_mem = &cancom_process_thread_buffer,
+			.cb_size = sizeof(cancom_process_thread_buffer)
+		});
+
 #ifdef HW_HAS_DUAL_MOTORS
-	chThdCreateStatic(cancom_status_internal_thread_wa, sizeof(cancom_status_internal_thread_wa),
-			NORMALPRIO, cancom_status_internal_thread, NULL);
+	osThreadNew((osThreadFunc_t)cancom_status_internal_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "can_status_intl",
+			.priority = osPriorityNormal,
+			.stack_mem = cancom_status_internal_thread_stack,
+			.stack_size = sizeof(cancom_status_internal_thread_stack),
+			.cb_mem = &cancom_status_internal_thread_buffer,
+			.cb_size = sizeof(cancom_status_internal_thread_buffer)
+		});
 #endif
 
 	init_done = true;
@@ -225,7 +301,7 @@ void comm_can_set_baud(CAN_BAUD baud, int delay_msec) {
 		canStop(&HW_CAN_DEV);
 #endif
 
-		chThdSleepMilliseconds(delay_msec);
+		osDelay(delay_msec);
 	}
 
 	switch (baud) {
@@ -300,28 +376,28 @@ msg_t comm_can_transmit_eid_replace(uint32_t id, const uint8_t *data, uint8_t le
 	txmsg.DLC = len;
 	memcpy(txmsg.data8, data, len);
 
-	chMtxLock(&can_mtx);
+	osMutexAcquire(can_mtx, osWaitForever);
 #ifdef HW_CAN2_DEV
 	if (interface == 0) {
 		for (int i = 0;i < 10;i++) {
-			msg_t ok = canTransmit(&HW_CAN_DEV, CAN_ANY_MAILBOX, &txmsg, TIME_IMMEDIATE);
-			msg_t ok2 = canTransmit(&HW_CAN2_DEV, CAN_ANY_MAILBOX, &txmsg, TIME_IMMEDIATE);
+			int ok = can_hal_transmit(&can1_driver, CAN_ANY_MAILBOX, &txmsg, 0);
+			int ok2 = can_hal_transmit(&can2_driver, CAN_ANY_MAILBOX, &txmsg, 0);
 			if (ok == MSG_OK || ok2 == MSG_OK) {
 				ret = MSG_OK;
 				break;
 			}
-			chThdSleepMicroseconds(500);
+			osDelay(1);  // 1 ms delay instead of 500 us
 		}
 	} else if (interface == 1) {
-		ret = canTransmit(&HW_CAN_DEV, CAN_ANY_MAILBOX, &txmsg, MS2ST(5));
+		ret = can_hal_transmit(&can1_driver, CAN_ANY_MAILBOX, &txmsg, 5);
 	} else if (interface == 2) {
-		ret = canTransmit(&HW_CAN2_DEV, CAN_ANY_MAILBOX, &txmsg, MS2ST(5));
+		ret = can_hal_transmit(&can2_driver, CAN_ANY_MAILBOX, &txmsg, 5);
 	}
 #else
 	(void)interface;
-	ret = canTransmit(&HW_CAN_DEV, CAN_ANY_MAILBOX, &txmsg, MS2ST(5));
+	ret = can_hal_transmit(&can1_driver, CAN_ANY_MAILBOX, &txmsg, 5);
 #endif
-	chMtxUnlock(&can_mtx);
+	osMutexRelease(can_mtx);
 #else
 	(void)id;
 	(void)data;
@@ -359,21 +435,21 @@ msg_t comm_can_transmit_sid(uint32_t id, const uint8_t *data, uint8_t len) {
 	txmsg.DLC = len;
 	memcpy(txmsg.data8, data, len);
 
-	chMtxLock(&can_mtx);
+	osMutexAcquire(can_mtx, osWaitForever);
 #ifdef HW_CAN2_DEV
 	for (int i = 0;i < 10;i++) {
-		msg_t ok = canTransmit(&HW_CAN_DEV, CAN_ANY_MAILBOX, &txmsg, TIME_IMMEDIATE);
-		msg_t ok2 = canTransmit(&HW_CAN2_DEV, CAN_ANY_MAILBOX, &txmsg, TIME_IMMEDIATE);
+		int ok = can_hal_transmit(&can1_driver, CAN_ANY_MAILBOX, &txmsg, 0);
+		int ok2 = can_hal_transmit(&can2_driver, CAN_ANY_MAILBOX, &txmsg, 0);
 		if (ok == MSG_OK || ok2 == MSG_OK) {
 			ret = MSG_OK;
 			break;
 		}
-		chThdSleepMicroseconds(500);
+		osDelay(1);
 	}
 #else
-	ret = canTransmit(&HW_CAN_DEV, CAN_ANY_MAILBOX, &txmsg, MS2ST(5));
+	ret = can_hal_transmit(&can1_driver, CAN_ANY_MAILBOX, &txmsg, 5);
 #endif
-	chMtxUnlock(&can_mtx);
+	osMutexRelease(can_mtx);
 #else
 	(void)id;
 	(void)data;
@@ -1173,7 +1249,7 @@ CANRxFrame *comm_can_get_rx_frame(int interface) {
 	CANRxFrame *res = NULL;
 
 #if CAN_ENABLE
-	chMtxLock(&can_rx_mtx);
+	osMutexAcquire(&can_rx_mtx);
 	if (!res && interface != 2) {
 		if (m_rx_state.frame_read != m_rx_state.frame_write) {
 			res = &m_rx_state.rx_frames[m_rx_state.frame_read++];
@@ -1194,7 +1270,7 @@ CANRxFrame *comm_can_get_rx_frame(int interface) {
 		}
 	}
 #endif
-	chMtxUnlock(&can_rx_mtx);
+	osMutexRelease(&can_rx_mtx);
 #else
 	(void)interface;
 #endif
@@ -1263,38 +1339,30 @@ void comm_can_send_status6(uint8_t id, bool replace) {
 }
 
 #if CAN_ENABLE
-static THD_FUNCTION(cancom_read_thread, arg) {
+static void *cancom_read_thread(void *arg) {
 	(void)arg;
-	chRegSetThreadName("CAN read");
 
-	event_listener_t el;
 	CANRxFrame rxmsg;
 
-	chEvtRegister(&HW_CAN_DEV.rxfull_event, &el, 0);
-#ifdef HW_CAN2_DEV
-	event_listener_t el2;
-	chEvtRegister(&HW_CAN2_DEV.rxfull_event, &el2, 0);
-#endif
-
-	while(!chThdShouldTerminateX()) {
+	while(1) {
 		// Feed watchdog
 		timeout_feed_WDT(THREAD_CANBUS);
         
-		if (chEvtWaitAnyTimeout(ALL_EVENTS, MS2ST(10)) == 0) {
-			continue;
-		}
+		// Wait for CAN frames with 10ms timeout
+		osDelay(10);
 
 		msg_t result = canReceive(&HW_CAN_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 
 		while (result == MSG_OK) {
-			chMtxLock(&can_rx_mtx);
+			osMutexAcquire(can_rx_mtx, osWaitForever);
 			m_rx_state.rx_frames[m_rx_state.frame_write++] = rxmsg;
 			if (m_rx_state.frame_write == RX_FRAMES_SIZE) {
 				m_rx_state.frame_write = 0;
 			}
-			chMtxUnlock(&can_rx_mtx);
+			osMutexRelease(can_rx_mtx);
 
-			chEvtSignal(process_tp, (eventmask_t) 1);
+			// Signal process thread that frames are available
+			osEventFlagsSet(can_process_event, CAN_RX_FRAME_AVAILABLE);
 
 			result = canReceive(&HW_CAN_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 		}
@@ -1303,34 +1371,30 @@ static THD_FUNCTION(cancom_read_thread, arg) {
 		result = canReceive(&HW_CAN2_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 
 		while (result == MSG_OK) {
-			chMtxLock(&can_rx_mtx);
+			osMutexAcquire(can_rx_mtx, osWaitForever);
 			m_rx_state2.rx_frames[m_rx_state2.frame_write++] = rxmsg;
 			if (m_rx_state2.frame_write == RX_FRAMES_SIZE) {
 				m_rx_state2.frame_write = 0;
 			}
-			chMtxUnlock(&can_rx_mtx);
+			osMutexRelease(can_rx_mtx);
 
-			chEvtSignal(process_tp, (eventmask_t) 1);
+			osEventFlagsSet(can_process_event, CAN_RX_FRAME_AVAILABLE);
 
 			result = canReceive(&HW_CAN2_DEV, CAN_ANY_MAILBOX, &rxmsg, TIME_IMMEDIATE);
 		}
 #endif
 	}
 
-	chEvtUnregister(&HW_CAN_DEV.rxfull_event, &el);
-#ifdef HW_CAN2_DEV
-	chEvtUnregister(&HW_CAN2_DEV.rxfull_event, &el2);
-#endif
+	return NULL;
 }
 
-static THD_FUNCTION(cancom_process_thread, arg) {
+static void *cancom_process_thread(void *arg) {
 	(void)arg;
 
-	chRegSetThreadName("CAN process");
-	process_tp = chThdGetSelfX();
-
-	for(;;) {
-		chEvtWaitAny((eventmask_t)1);
+	while(1) {
+		// Wait for CAN frames to be available (event from read thread)
+		osEventFlagsWait(can_process_event, CAN_RX_FRAME_AVAILABLE, 
+			osFlagsWaitAny, osWaitForever);
 
 		if (app_get_configuration()->can_mode == CAN_MODE_UAVCAN) {
 			continue;
@@ -1411,6 +1475,8 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 			}
 		}
 	}
+
+	return NULL;
 }
 
 #ifdef HW_HAS_DUAL_MOTORS
@@ -1431,7 +1497,7 @@ static THD_FUNCTION(cancom_status_internal_thread, arg) {
 		comm_can_send_status4(utils_second_motor_id(), true);
 		comm_can_send_status5(utils_second_motor_id(), true);
 		comm_can_send_status6(utils_second_motor_id(), true);
-		chThdSleepMilliseconds(2);
+		osDelay(2);
 	}
 }
 #endif
@@ -1504,7 +1570,7 @@ static THD_FUNCTION(cancom_status_thread, arg) {
 		}
 
 		while (conf->can_status_rate_1 == 0) {
-			chThdSleepMilliseconds(10);
+			osDelay(10);
 			conf = app_get_configuration();
 		}
 
@@ -1529,7 +1595,7 @@ static THD_FUNCTION(cancom_status_thread_2, arg) {
 		}
 
 		while (conf->can_status_rate_2 == 0) {
-			chThdSleepMilliseconds(10);
+			osDelay(10);
 			conf = app_get_configuration();
 		}
 
@@ -1970,7 +2036,7 @@ static void decode_msg(uint32_t eid, uint8_t *data8, int len, bool is_replaced) 
 			mc_interface_lock();
 			DISABLE_GATE();
 			HW_SHUTDOWN_HOLD_OFF();
-			chThdSleepMilliseconds(5000);
+			osDelay(5000);
 			HW_SHUTDOWN_HOLD_ON();
 			ENABLE_GATE();
 			mc_interface_unlock();
@@ -2269,3 +2335,4 @@ static void set_timing(int brp, int ts1, int ts2) {
 	canStart(&HW_CAN_DEV, &cancfg);
 #endif
 }
+

@@ -20,10 +20,13 @@
 #ifndef SPI_BB_H_
 #define SPI_BB_H_
 
-#include "ch.h"
-#include "hal.h"
+#include "stm32f1xx_hal.h"
+#include "cmsis_os2.h"
 #include "stdint.h"
 #include "stdbool.h"
+
+// GPIO structure typedef (compatible with HAL GPIO port definitions)
+typedef GPIO_TypeDef stm32_gpio_t;
 
 typedef struct {
 	stm32_gpio_t *nss_gpio;
@@ -34,7 +37,7 @@ typedef struct {
 	int mosi_pin;
 	stm32_gpio_t *miso_gpio;
 	int miso_pin;
-	mutex_t mutex;
+	osMutexId_t mutex;
 	bool mutex_init_done;
 } spi_bb_state;
 

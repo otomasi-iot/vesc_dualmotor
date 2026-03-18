@@ -20,10 +20,13 @@
 #ifndef I2C_BB_H_
 #define I2C_BB_H_
 
-#include "ch.h"
-#include "hal.h"
+#include "stm32f1xx_hal.h"
+#include "cmsis_os2.h"
 #include "stdint.h"
 #include "stdbool.h"
+
+// GPIO structure typedef (compatible with HAL GPIO port definitions)
+typedef GPIO_TypeDef stm32_gpio_t;
 
 typedef enum {
 	I2C_BB_RATE_100K = 0,
@@ -38,7 +41,7 @@ typedef struct {
 	I2C_BB_RATE rate;
 	bool has_started;
 	bool has_error;
-	mutex_t mutex;
+	osMutexId_t mutex;
 } i2c_bb_state;
 
 void i2c_bb_init(i2c_bb_state *s);

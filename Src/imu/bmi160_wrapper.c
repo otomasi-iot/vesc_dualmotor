@@ -25,6 +25,8 @@
 
 // Threads
 static THD_FUNCTION(bmi_thread, arg);
+static StaticTask_t bmi_thread_tcb;
+static StackType_t bmi_thread_stack[512];
 
 // Private functions
 static bool reset_init_bmi(BMI_STATE *s);
@@ -41,7 +43,15 @@ void bmi160_wrapper_init(BMI_STATE *s, stkalign_t *work_area, size_t work_area_s
 
 	if (reset_init_bmi(s)) {
 		s->should_stop = false;
-		chThdCreateStatic(work_area, work_area_size, NORMALPRIO, bmi_thread, s);
+		osThreadNew((osThreadFunc_t)bmi_thread, s,
+			&(const osThreadAttr_t){
+				.name = "bmi160",
+				.priority = osPriorityNormal,
+				.stack_mem = bmi_thread_stack,
+				.stack_size = sizeof(bmi_thread_stack),
+				.cb_mem = &bmi_thread_tcb,
+				.cb_size = sizeof(bmi_thread_tcb)
+			});
 	}
 }
 

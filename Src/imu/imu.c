@@ -40,6 +40,8 @@ static ATTITUDE_INFO m_att;
 static FusionAhrs m_fusionAhrs;
 static float m_accel[3], m_gyro[3], m_mag[3];
 static stkalign_t m_thd_work_area[THD_WORKING_AREA_SIZE(1024) / sizeof(stkalign_t)];
+static StaticTask_t m_imu_thread_tcb;
+static StackType_t m_imu_thread_stack[1024];
 static i2c_bb_state m_i2c_bb;
 static spi_bb_state m_spi_bb;
 static ICM20948_STATE m_icm20948_state;
@@ -390,7 +392,7 @@ void imu_get_calibration(float yaw, float *imu_cal) {
 		original_gyro_offsets[0] += m_gyro[0];
 		original_gyro_offsets[1] += m_gyro[1];
 		original_gyro_offsets[2] += m_gyro[2];
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 	original_gyro_offsets[0] /= 1000;
 	original_gyro_offsets[1] /= 1000;
@@ -403,13 +405,13 @@ void imu_get_calibration(float yaw, float *imu_cal) {
 
 	// Reset AHRS and wait 1.5 seconds (for AHRS to settle now that gyro is calibrated)
 	ahrs_init_attitude_info(&m_att);
-	chThdSleepMilliseconds(1500);
+	osDelay(1500);
 
 	// Sample roll
 	float roll_sample = 0;
 	for (int i = 0; i < 250; i++) {
 		roll_sample += imu_get_roll();
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 	roll_sample = roll_sample / 250;
 
@@ -422,13 +424,13 @@ void imu_get_calibration(float yaw, float *imu_cal) {
 
 	// Reset AHRS and wait 1.5 seconds (for AHRS to settle now that pitch is calibrated)
 	ahrs_init_attitude_info(&m_att);
-	chThdSleepMilliseconds(1500);
+	osDelay(1500);
 
 	// Sample pitch
 	float pitch_sample = 0;
 	for (int i = 0; i < 250; i++) {
 		pitch_sample += imu_get_pitch();
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 	pitch_sample = pitch_sample / 250;
 
@@ -671,7 +673,7 @@ static int8_t user_spi_read(uint8_t dev_id, uint8_t reg_addr, uint8_t *data, uin
 
 	reg_addr = (reg_addr | BMI160_SPI_RD_MASK);
 
-	chMtxLock(&m_spi_bb.mutex);
+	osMutexAcquire(&m_spi_bb.mutex);
 	spi_bb_begin(&m_spi_bb);
 	spi_bb_exchange_8(&m_spi_bb, reg_addr);
 	spi_bb_delay();
@@ -681,7 +683,7 @@ static int8_t user_spi_read(uint8_t dev_id, uint8_t reg_addr, uint8_t *data, uin
 	}
 
 	spi_bb_end(&m_spi_bb);
-	chMtxUnlock(&m_spi_bb.mutex);
+	osMutexRelease(&m_spi_bb.mutex);
 	return rslt;
 }
 
@@ -689,7 +691,7 @@ static int8_t user_spi_write(uint8_t dev_id, uint8_t reg_addr, uint8_t *data, ui
 	(void)dev_id;
 
 	int8_t rslt = BMI160_OK; /* Return 0 for Success, non-zero for failure */
-	chMtxLock(&m_spi_bb.mutex);
+	osMutexAcquire(&m_spi_bb.mutex);
 	spi_bb_begin(&m_spi_bb);
 	reg_addr = (reg_addr & BMI160_SPI_WR_MASK);
 	spi_bb_exchange_8(&m_spi_bb, reg_addr);
@@ -701,7 +703,7 @@ static int8_t user_spi_write(uint8_t dev_id, uint8_t reg_addr, uint8_t *data, ui
 	}
 
 	spi_bb_end(&m_spi_bb);
-	chMtxUnlock(&m_spi_bb.mutex);
+	osMutexRelease(&m_spi_bb.mutex);
 
 	return rslt;
 }
@@ -710,3 +712,4 @@ static void terminal_imu_type_internal(int argc, const char **argv) {
 	(void)argc;(void)argv;
 	commands_printf(m_imu_type_internal);
 }
+

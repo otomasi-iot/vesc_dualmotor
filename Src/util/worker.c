@@ -28,27 +28,37 @@ typedef struct {
 } worker_arg_t;
 
 // Private variables
-static thread_t *m_tp = 0;
+static osThreadId_t m_tp = NULL;
 static worker_arg_t m_wa;
-static THD_WORKING_AREA(work_thread_wa, 768);
+static StaticTask_t work_thread_tcb;
+static StackType_t work_thread_stack[768];
 static THD_FUNCTION(work_thread, arg);
 
 void worker_execute(void(*func)(void *arg), void *arg) {
 	worker_wait();
 	m_wa.func = func;
 	m_wa.arg = arg;
-	chThdCreateStatic(work_thread_wa, sizeof(work_thread_wa), NORMALPRIO, work_thread, &m_wa);
+	m_tp = osThreadNew((osThreadFunc_t)work_thread, &m_wa,
+		&(const osThreadAttr_t){
+			.name = "worker",
+			.priority = osPriorityNormal,
+			.stack_mem = work_thread_stack,
+			.stack_size = sizeof(work_thread_stack),
+			.cb_mem = &work_thread_tcb,
+			.cb_size = sizeof(work_thread_tcb)
+		});
 }
 
 void worker_wait(void) {
 	if (m_tp) {
-		chThdWait(m_tp);
+		osThreadJoin(m_tp);
+		m_tp = NULL;
 	}
 }
 
 static THD_FUNCTION(work_thread, arg) {
 	chRegSetThreadName("Worker");
-	m_tp = chThdGetSelfX();
 	((worker_arg_t*)arg)->func(((worker_arg_t*)arg)->arg);
-	m_tp = 0;
+	return NULL;
 }
+

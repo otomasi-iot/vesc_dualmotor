@@ -51,7 +51,7 @@ static inline float rate2secs(i2c_bb_state *s) {
 }
 
 void i2c_bb_init(i2c_bb_state *s) {
-	chMtxObjectInit(&s->mutex);
+	s->mutex = osMutexNew(&(const osMutexAttr_t){.name="i2c_mutex"});
 	hal_gpio_init_output_od(s->sda_gpio, s->sda_pin);
 	hal_gpio_init_output_od(s->scl_gpio, s->scl_pin);
 	s->has_started = false;
@@ -59,18 +59,18 @@ void i2c_bb_init(i2c_bb_state *s) {
 }
 
 void i2c_bb_restore_bus(i2c_bb_state *s) {
-	chMtxLock(&s->mutex);
+	osMutexAcquire(s->mutex, osWaitForever);
 
 	SCL_HIGH();
 	SDA_HIGH();
 
-	chThdSleep(1);
+	osDelay(1);
 
 	for(int i = 0;i < 16;i++) {
 		SCL_LOW();
-		chThdSleep(1);
+		osDelay(1);
 		SCL_HIGH();
-		chThdSleep(1);
+		osDelay(1);
 	}
 
 	s->has_started = false;
@@ -80,17 +80,17 @@ void i2c_bb_restore_bus(i2c_bb_state *s) {
 
 	s->has_error = false;
 
-	chMtxUnlock(&s->mutex);
+	osMutexRelease(s->mutex);
 }
 
 bool i2c_bb_tx_rx(i2c_bb_state *s, uint16_t addr, uint8_t *txbuf, size_t txbytes, uint8_t *rxbuf, size_t rxbytes) {
-	chMtxLock(&s->mutex);
+	osMutexAcquire(s->mutex, osWaitForever);
 
 	if (txbytes > 0 && txbuf) {
 		i2c_bb_write_byte(s, true, false, addr << 1);
 
 		if (s->has_error) {
-			chMtxUnlock(&s->mutex);
+			osMutexRelease(s->mutex);
 			return false;
 		}
 
@@ -98,7 +98,7 @@ bool i2c_bb_tx_rx(i2c_bb_state *s, uint16_t addr, uint8_t *txbuf, size_t txbytes
 			i2c_bb_write_byte(s, false, false, txbuf[i]);
 
 			if (s->has_error) {
-				chMtxUnlock(&s->mutex);
+				osMutexRelease(s->mutex);
 				return false;
 			}
 		}
@@ -108,14 +108,14 @@ bool i2c_bb_tx_rx(i2c_bb_state *s, uint16_t addr, uint8_t *txbuf, size_t txbytes
 		i2c_bb_write_byte(s, true, false, addr << 1 | 1);
 
 		if (s->has_error) {
-			chMtxUnlock(&s->mutex);
+			osMutexRelease(s->mutex);
 			return false;
 		}
 
 		for (unsigned int i = 0;i < rxbytes;i++) {
 			rxbuf[i] = i2c_bb_read_byte(s, i == (rxbytes - 1), false);
 			if (s->has_error) {
-				chMtxUnlock(&s->mutex);
+				osMutexRelease(s->mutex);
 				return false;
 			}
 		}
@@ -123,7 +123,7 @@ bool i2c_bb_tx_rx(i2c_bb_state *s, uint16_t addr, uint8_t *txbuf, size_t txbytes
 
 	i2c_stop_cond(s);
 
-	chMtxUnlock(&s->mutex);
+	osMutexRelease(s->mutex);
 
 	return !s->has_error;
 }

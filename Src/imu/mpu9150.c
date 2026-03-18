@@ -70,7 +70,9 @@ static int get_raw_mag(int16_t* mag);
 static THD_FUNCTION(mpu_thread, arg);
 static void terminal_status(int argc, const char **argv);
 static void terminal_read_reg(int argc, const char **argv);
-static thread_t *mpu_tp = 0;
+static StaticTask_t mpu_thread_tcb;
+static StackType_t mpu_thread_stack[512];
+static osThreadId_t mpu_tp = NULL;
 
 // Function pointers
 static void(*read_callback)(float *accel, float *gyro, float *mag) = 0;
@@ -118,7 +120,15 @@ void mpu9150_init(stm32_gpio_t *sda_gpio, int sda_pin,
 		mpu_found = true;
 		if (!mpu_tp) {
 			should_stop = false;
-			chThdCreateStatic(work_area, work_area_size, NORMALPRIO, mpu_thread, NULL);
+			mpu_tp = osThreadNew((osThreadFunc_t)mpu_thread, NULL,
+				&(const osThreadAttr_t){
+					.name = "mpu9x50",
+					.priority = osPriorityNormal,
+					.stack_mem = mpu_thread_stack,
+					.stack_size = sizeof(mpu_thread_stack),
+					.cb_mem = &mpu_thread_tcb,
+					.cb_size = sizeof(mpu_thread_tcb)
+				});
 		}
 	} else {
 		mpu_found = false;
@@ -285,7 +295,7 @@ static THD_FUNCTION(mpu_thread, arg) {
 	chRegSetThreadName("MPU Sampling");
 
 	is_running = true;
-	mpu_tp = chThdGetSelfX();
+	mpu_tp = (osThreadId_t)xTaskGetCurrentTaskHandle();
 
 	static int16_t raw_accel_gyro_mag_tmp[9];
 	static int mag_cnt = MAG_DIV;
@@ -297,7 +307,7 @@ static THD_FUNCTION(mpu_thread, arg) {
 	for(;;) {
 		if (should_stop) {
 			is_running = false;
-			mpu_tp = 0;
+			mpu_tp = NULL;
 			return;
 		}
 
@@ -318,7 +328,7 @@ static THD_FUNCTION(mpu_thread, arg) {
 
 			if (identical_reads >= MAX_IDENTICAL_READS) {
 				failed_reads++;
-				chThdSleepMicroseconds(FAIL_DELAY_US);
+				osDelay(pdMS_TO_TICKS(FAIL_DELAY_US / 1000));
 				reset_init_mpu();
 				iteration_timer = chVTGetSystemTimeX();
 			} else {
@@ -360,7 +370,7 @@ static THD_FUNCTION(mpu_thread, arg) {
 			}
 		} else {
 			failed_reads++;
-			chThdSleepMicroseconds(FAIL_DELAY_US);
+			osDelay(pdMS_TO_TICKS(FAIL_DELAY_US / 1000));
 			reset_init_mpu();
 			iteration_timer = chVTGetSystemTimeX();
 		}

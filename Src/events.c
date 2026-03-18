@@ -31,7 +31,7 @@
 // Private types
 typedef struct {
 	const char *name;
-	thread_t *thread;
+	thread_t thread;
 	float param;
 	systime_t time;
 	bool set;
@@ -106,8 +106,8 @@ static void terminal_print(int argc, const char **argv) {
 		if (e->set) {
 			print_cnt++;
 			commands_printf("Age    : %.2f s", (double)UTILS_AGE_S(e->time));
-			commands_printf("Thread : %s", e->thread->p_name);
-			commands_printf("Motor  : %i", e->thread->motor_selected);
+			const char *tname = osThreadGetName(e->thread);
+			commands_printf("Thread : %s", tname ? tname : "unknown");
 			commands_printf("Command: %s", e->name);
 			commands_printf("Param  : %.3f\n", (double)e->param);
 		}

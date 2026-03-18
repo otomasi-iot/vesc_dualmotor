@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "datatypes.h"
+#include "ch.h"
 
 void utils_sys_lock_cnt(void);
 void utils_sys_unlock_cnt(void);

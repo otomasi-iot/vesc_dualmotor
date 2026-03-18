@@ -26,7 +26,9 @@
 #include <stdio.h>
 
 
-static thread_t *lsm6ds3_thread_ref = NULL;
+static osThreadId_t lsm6ds3_thread_ref = NULL;
+static volatile bool lsm6ds3_should_stop = false;
+static volatile bool lsm6ds3_is_running = false;
 static i2c_bb_state *m_i2c_bb;
 static volatile uint16_t lsm6ds3_addr;
 static int rate_hz = 1000;
@@ -35,6 +37,8 @@ static IMU_FILTER filter;
 static void terminal_read_reg(int argc, const char **argv);
 static uint8_t read_single_reg(uint8_t reg);
 static THD_FUNCTION(lsm6ds3_thread, arg);
+static StaticTask_t lsm6ds3_thread_tcb;
+static StackType_t lsm6ds3_thread_stack[512];
 
 // Function pointers
 static void(*read_callback)(float *accel, float *gyro, float *mag) = 0;
@@ -207,13 +211,24 @@ void lsm6ds3_init(i2c_bb_state *i2c_state,
 			"[reg]",
 			terminal_read_reg);
 
-	lsm6ds3_thread_ref = chThdCreateStatic(work_area, work_area_size, NORMALPRIO, lsm6ds3_thread, NULL);
+	lsm6ds3_should_stop = false;
+	lsm6ds3_thread_ref = osThreadNew((osThreadFunc_t)lsm6ds3_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "lsm6ds3",
+			.priority = osPriorityNormal,
+			.stack_mem = lsm6ds3_thread_stack,
+			.stack_size = sizeof(lsm6ds3_thread_stack),
+			.cb_mem = &lsm6ds3_thread_tcb,
+			.cb_size = sizeof(lsm6ds3_thread_tcb)
+		});
 }
 
 void lsm6ds3_stop(void) {
 	if (lsm6ds3_thread_ref != NULL){
-		chThdTerminate(lsm6ds3_thread_ref);
-		chThdWait(lsm6ds3_thread_ref);
+		lsm6ds3_should_stop = true;
+		while (lsm6ds3_is_running) {
+			osDelay(1);
+		}
 	}
 	lsm6ds3_thread_ref = NULL;
 	terminal_unregister_callback(terminal_read_reg);
@@ -261,10 +276,11 @@ static THD_FUNCTION(lsm6ds3_thread, arg) {
 	(void)arg;
 	chRegSetThreadName("LSM6SD3");
 
+	lsm6ds3_is_running = true;
 	systime_t iteration_timer = chVTGetSystemTimeX();
 	const systime_t desired_interval = US2ST(1000000 / rate_hz);
 
-	while (!chThdShouldTerminateX()) {
+	while (!lsm6ds3_should_stop) {
 		uint8_t txb[2];
 		uint8_t rxb[12];
 

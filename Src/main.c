@@ -19,7 +19,14 @@
 
 #pragma GCC optimize ("Os")
 
-#include "ch.h"
+#ifndef HOVERBOARD_MINIMAL
+#define HOVERBOARD_MINIMAL 0
+#endif
+#ifndef HOVERBOARD_CORE
+#define HOVERBOARD_CORE 0
+#endif
+
+#include "cmsis_os2.h"
 #include "hal.h"
 #include "hwconf/hal_gpio.h"
 #include "stm32f1xx_hal.h"
@@ -30,12 +37,15 @@
 #include <string.h>
 #include <stdlib.h>
 
+#if !HOVERBOARD_MINIMAL && !HOVERBOARD_CORE
 #include "mc_interface.h"
 #include "mcpwm.h"
 #include "mcpwm_foc.h"
+void mcpwm_init_hardware(void);
+void mcpwm_hal_fault_init(void);
+void hw_init_gpio(void);
 #include "ledpwm.h"
 #include "comm_usb.h"
-#include "ledpwm.h"
 #include "terminal.h"
 #include "hw.h"
 #include "app.h"
@@ -53,7 +63,11 @@
 #include "flash_helper.h"
 #include "conf_custom.h"
 #include "crc.h"
-#include "qmlui.h"
+#else
+#include "hw_config.h"
+void hw_init_gpio(void);
+void MX_GPIO_Init(void);
+#endif
 
 #if HAS_BLACKMAGIC
 #include "bm_if.h"
@@ -63,7 +77,7 @@
 #include "events.h"
 #include "main.h"
 
-#ifdef CAN_ENABLE
+#if CAN_ENABLE
 #include "comm_can.h"
 #define CAN_FRAME_MAX_PL_SIZE	8
 #endif
@@ -93,33 +107,39 @@
 foc_profile g_foc_profile;
 #endif
 
-// Private variables
-static THD_WORKING_AREA(periodic_thread_wa, 256);
-static THD_WORKING_AREA(led_thread_wa, 256);
-static THD_WORKING_AREA(flash_integrity_check_thread_wa, 256);
+/* ===== Static Task Buffers for FreeRTOS CMSIS v2 ===== */
+static StaticTask_t periodic_thread_buffer;
+static StackType_t periodic_thread_stack[256];
+static StaticTask_t led_thread_buffer;
+static StackType_t led_thread_stack[256];
+static StaticTask_t flash_integrity_check_thread_buffer;
+static StackType_t flash_integrity_check_thread_stack[256];
+
+/* ===== Private Variables ===== */
 static volatile bool m_init_done = false;
 
-static THD_FUNCTION(flash_integrity_check_thread, arg) {
+#if !HOVERBOARD_MINIMAL
+static void *flash_integrity_check_thread(void *arg) {
 	(void)arg;
+	__HAL_RCC_CRC_CLK_ENABLE();
 
-	chRegSetThreadName("Flash check");
-	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_CRC, ENABLE);
-
-	for(;;) {
+	while (1) {
 		if (flash_helper_verify_flash_memory_chunk() == FAULT_CODE_FLASH_CORRUPTION) {
 			NVIC_SystemReset();
 		}
 
-		chThdSleepMilliseconds(6);
+		osDelay(6);
 	}
+	
+	return NULL;
 }
+#endif
 
-static THD_FUNCTION(led_thread, arg) {
+#if !HOVERBOARD_MINIMAL && !HOVERBOARD_CORE
+static void *led_thread(void *arg) {
 	(void)arg;
 
-	chRegSetThreadName("Main LED");
-
-	for(;;) {
+	while (1) {
 		mc_state state1 = mc_interface_get_state();
 		mc_interface_select_motor_thread(2);
 		mc_state state2 = mc_interface_get_state();
@@ -137,35 +157,46 @@ static THD_FUNCTION(led_thread, arg) {
 		if (fault != FAULT_CODE_NONE || fault2 != FAULT_CODE_NONE) {
 			for (int i = 0;i < (int)fault;i++) {
 				ledpwm_set_intensity(LED_RED, 1.0);
-				chThdSleepMilliseconds(250);
+				osDelay(250);
 				ledpwm_set_intensity(LED_RED, 0.0);
-				chThdSleepMilliseconds(250);
+				osDelay(250);
 			}
 
-			chThdSleepMilliseconds(500);
+			osDelay(500);
 
 			for (int i = 0;i < (int)fault2;i++) {
 				ledpwm_set_intensity(LED_RED, 1.0);
-				chThdSleepMilliseconds(250);
+				osDelay(250);
 				ledpwm_set_intensity(LED_RED, 0.0);
-				chThdSleepMilliseconds(250);
+				osDelay(250);
 			}
 
-			chThdSleepMilliseconds(500);
+			osDelay(500);
 		} else {
 			ledpwm_set_intensity(LED_RED, 0.0);
 		}
 
-		chThdSleepMilliseconds(10);
+		osDelay(10);
 	}
+	
+	return NULL;
 }
+#else
+static void *led_thread(void *arg) {
+	(void)arg;
+	for (;;) {
+		HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+		osDelay(250);
+	}
+	return NULL;
+}
+#endif
 
-static THD_FUNCTION(periodic_thread, arg) {
+#if !HOVERBOARD_MINIMAL
+static void *periodic_thread(void *arg) {
 	(void)arg;
 
-	chRegSetThreadName("Main periodic");
-
-	for(;;) {
+	while (1) {
 		if (mc_interface_get_state() == MC_STATE_DETECTING) {
 			commands_send_rotor_pos(mcpwm_get_detect_pos());
 		}
@@ -210,16 +241,20 @@ static THD_FUNCTION(periodic_thread, arg) {
 	 
 		HW_TRIM_HSI(); // Compensate HSI for temperature
 
-		chThdSleepMilliseconds(10);
+		osDelay(10);
 	}
+	
+	return NULL;
 }
+#endif
 
+#if !HOVERBOARD_MINIMAL
 // When assertions enabled halve PWM frequency. The control loop ISR runs 40% slower
 void assert_failed(uint8_t* file, uint32_t line) {
 	commands_printf("Wrong parameters value: file %s on line %d\r\n", file, line);
 	mc_interface_release_motor();
 	while(1) {
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 }
 
@@ -251,26 +286,52 @@ uint32_t main_calc_hw_crc(void) {
 
 	return crc;
 }
+#endif
 
 int main(void) {
+	// ===== Initialize STM32 Hardware Abstraction Layer =====
 	halInit();
-	chSysInit();
 
+#if HOVERBOARD_MINIMAL
+	// Minimal bring-up: only GPIO + RTOS + LED thread.
+	hw_init_gpio();
+
+	osKernelInitialize();
+	osThreadNew((osThreadFunc_t)led_thread, NULL, NULL);
+	osKernelStart();
+	for (;;) {
+	}
+#else
+#if HOVERBOARD_CORE
+	// Core bring-up: GPIO + RTOS + LED only. Motor/comm modules enabled later.
+	hw_init_gpio();
+	osKernelInitialize();
+	osThreadNew((osThreadFunc_t)led_thread, NULL, NULL);
+	osKernelStart();
+	for (;;) {
+	}
+#endif
+	
 	// Initialize the enable pins here and disable them
 	// to avoid excessive current draw at boot because of
 	// floating pins.
-#ifdef HW_HAS_DRV8313
+#if defined(HW_HAS_DRV8313) && HW_HAS_DRV8313
 	INIT_BR();
 #endif
 
 	HW_EARLY_INIT();
+
+	// Added by Agent
+	hw_init_gpio();
+	mcpwm_init_hardware();
+	mcpwm_hal_fault_init();
 
 #ifdef BOOT_OK_GPIO
 	hal_gpio_init_output(BOOT_OK_GPIO, BOOT_OK_PIN);
 	hal_gpio_clear(BOOT_OK_GPIO, BOOT_OK_PIN);
 #endif
 
-	chThdSleepMilliseconds(100);
+	osDelay(100);
 
 	mempools_init();
 	events_init();
@@ -284,9 +345,9 @@ int main(void) {
 	if (flash_helper_verify_flash_memory() == FAULT_CODE_FLASH_CORRUPTION)	{
 		// Loop here, it is not safe to run any code
 		while (1) {
-			chThdSleepMilliseconds(100);
+			osDelay(100);
 			LED_RED_ON();
-			chThdSleepMilliseconds(75);
+			osDelay(75);
 			LED_RED_OFF();
 		}
 	}
@@ -329,10 +390,43 @@ int main(void) {
 	}
 #endif
 
-	// Threads
-	chThdCreateStatic(led_thread_wa, sizeof(led_thread_wa), NORMALPRIO, led_thread, NULL);
-	chThdCreateStatic(periodic_thread_wa, sizeof(periodic_thread_wa), NORMALPRIO, periodic_thread, NULL);
-	chThdCreateStatic(flash_integrity_check_thread_wa, sizeof(flash_integrity_check_thread_wa), LOWPRIO, flash_integrity_check_thread, NULL);
+	// ===== Initialize FreeRTOS Kernel =====
+	osKernelInitialize();
+
+	// ===== Start FreeRTOS Tasks (in priority order) =====
+	
+	// LED status indicator (low priority)
+	osThreadNew((osThreadFunc_t)led_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "led",
+			.priority = osPriorityBelowNormal,
+			.stack_mem = led_thread_stack,
+			.stack_size = sizeof(led_thread_stack),
+			.cb_mem = &led_thread_buffer,
+			.cb_size = sizeof(led_thread_buffer)
+		});
+
+	// Periodic status/telemetry thread (normal priority)
+	osThreadNew((osThreadFunc_t)periodic_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "periodic",
+			.priority = osPriorityNormal,
+			.stack_mem = periodic_thread_stack,
+			.stack_size = sizeof(periodic_thread_stack),
+			.cb_mem = &periodic_thread_buffer,
+			.cb_size = sizeof(periodic_thread_buffer)
+		});
+
+	// Flash integrity check (low priority)
+	osThreadNew((osThreadFunc_t)flash_integrity_check_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "flash_check",
+			.priority = osPriorityLow,
+			.stack_mem = flash_integrity_check_thread_stack,
+			.stack_size = sizeof(flash_integrity_check_thread_stack),
+			.cb_mem = &flash_integrity_check_thread_buffer,
+			.cb_size = sizeof(flash_integrity_check_thread_buffer)
+		});
 
 	timeout_init();
 	timeout_configure(appconf->timeout_msec, appconf->timeout_brake_current, appconf->kill_sw_mode);
@@ -341,18 +435,21 @@ int main(void) {
 	bm_init();
 #endif
 
+	// ===== Start FreeRTOS Kernel Scheduler =====
+	osKernelStart();
+
 	shutdown_init();
 
 	imu_reset_orientation();
 
-	chThdSleepMilliseconds(500);
+	osDelay(500);
 	m_init_done = true;
 
 #ifdef BOOT_OK_GPIO
 	hal_gpio_set(BOOT_OK_GPIO, BOOT_OK_PIN);
 #endif
 
-#ifdef CAN_ENABLE
+#if CAN_ENABLE
 	// Transmit a CAN boot-frame to notify other nodes on the bus about it.
 	if (appconf->can_mode == CAN_MODE_VESC) {
 		comm_can_transmit_eid(
@@ -365,10 +462,12 @@ int main(void) {
 	mempools_free_appconf(appconf);
 
 	for(;;) {
-		chThdSleepMilliseconds(10);
+		osDelay(10);
 	}
+#endif
 }
 
+#if !HOVERBOARD_MINIMAL
 void main_stop_motor_and_reset(void) {
 	LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
 	LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
@@ -384,7 +483,7 @@ void main_stop_motor_and_reset(void) {
 
 	LL_TIM_GenerateEvent_COM(TIM1);
 
-#ifdef HW_HAS_DRV8313
+#if defined(HW_HAS_DRV8313) && HW_HAS_DRV8313
 		DISABLE_BR();
 #endif
 
@@ -410,3 +509,5 @@ void main_stop_motor_and_reset(void) {
 
 	NVIC_SystemReset();
 }
+#endif
+

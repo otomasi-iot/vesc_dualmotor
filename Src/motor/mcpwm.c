@@ -160,11 +160,15 @@ static void pll_run(float phase, float dt, volatile float *phase_var,
 // Defines
 #define IS_DETECTING()			(state == MC_STATE_DETECTING)
 
-// Threads
-static THD_WORKING_AREA(timer_thread_wa, 512);
+// Threads — CMSIS-RTOS2 / FreeRTOS static allocation
 static THD_FUNCTION(timer_thread, arg);
-static THD_WORKING_AREA(rpm_thread_wa, 512);
+static StaticTask_t bldc_timer_thread_tcb;
+static StackType_t bldc_timer_thread_stack[512];
+
 static THD_FUNCTION(rpm_thread, arg);
+static StaticTask_t bldc_rpm_thread_tcb;
+static StackType_t bldc_rpm_thread_stack[512];
+
 static volatile bool timer_thd_stop;
 static volatile bool rpm_thd_stop;
 
@@ -437,8 +441,24 @@ void mcpwm_init(volatile mc_configuration *configuration) {
 	// Start threads
 	timer_thd_stop = false;
 	rpm_thd_stop = false;
-	chThdCreateStatic(timer_thread_wa, sizeof(timer_thread_wa), NORMALPRIO, timer_thread, NULL);
-	chThdCreateStatic(rpm_thread_wa, sizeof(rpm_thread_wa), NORMALPRIO, rpm_thread, NULL);
+	osThreadNew((osThreadFunc_t)timer_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "bldc_timer",
+			.priority = osPriorityNormal,
+			.stack_mem = bldc_timer_thread_stack,
+			.stack_size = sizeof(bldc_timer_thread_stack),
+			.cb_mem = &bldc_timer_thread_tcb,
+			.cb_size = sizeof(bldc_timer_thread_tcb)
+		});
+	osThreadNew((osThreadFunc_t)rpm_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "bldc_rpm",
+			.priority = osPriorityNormal,
+			.stack_mem = bldc_rpm_thread_stack,
+			.stack_size = sizeof(bldc_rpm_thread_stack),
+			.cb_mem = &bldc_rpm_thread_tcb,
+			.cb_size = sizeof(bldc_rpm_thread_tcb)
+		});
 
 	// Check if the system has resumed from IWDG reset
 	if (timeout_had_IWDG_reset()) {

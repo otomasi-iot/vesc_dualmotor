@@ -27,6 +27,8 @@
 
 // Threads
 static THD_FUNCTION(icm_thread, arg);
+static StaticTask_t icm_thread_tcb;
+static StackType_t icm_thread_stack[512];
 
 // Private functions
 static bool reset_init_icm(ICM20948_STATE *s);
@@ -46,7 +48,15 @@ void icm20948_init(ICM20948_STATE *s, i2c_bb_state *i2c_state, int ad0_val,
 
 	if (reset_init_icm(s)) {
 		s->should_stop = false;
-		chThdCreateStatic(work_area, work_area_size, NORMALPRIO, icm_thread, s);
+		osThreadNew((osThreadFunc_t)icm_thread, s,
+			&(const osThreadAttr_t){
+				.name = "icm20948",
+				.priority = osPriorityNormal,
+				.stack_mem = icm_thread_stack,
+				.stack_size = sizeof(icm_thread_stack),
+				.cb_mem = &icm_thread_tcb,
+				.cb_size = sizeof(icm_thread_tcb)
+			});
 	}
 
 	// Only register terminal command for the first instance of this driver.
@@ -195,6 +205,6 @@ static THD_FUNCTION(icm_thread, arg) {
 			return;
 		}
 
-		chThdSleepMicroseconds(1000000 / s->rate_hz);
+		osDelay(pdMS_TO_TICKS(1000 / s->rate_hz));
 	}
 }

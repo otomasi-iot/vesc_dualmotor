@@ -18,36 +18,23 @@
     */
 
 #include "timer.h"
-#include "ch.h"
-#include "hal.h"
-#include "stm32f4xx_conf.h"
-
-// Settings
-#define TIMER_HZ					1.4e7
+#include "stm32f1xx_hal.h"
 
 void timer_init(void) {
-	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM5, ENABLE);
-	uint16_t PrescalerValue = (uint16_t) ((SYSTEM_CORE_CLOCK / 2) / TIMER_HZ) - 1;
-
-	TIM_TimeBaseInitTypeDef  TIM_TimeBaseStructure;
-	TIM_TimeBaseStructure.TIM_Period = 0xFFFFFFFF;
-	TIM_TimeBaseStructure.TIM_Prescaler = PrescalerValue;
-	TIM_TimeBaseStructure.TIM_ClockDivision = 0;
-	TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;
-	TIM_TimeBaseInit(TIM5, &TIM_TimeBaseStructure);
-
-	TIM5->CNT = 0;
-	TIM_Cmd(TIM5, ENABLE);
+	// Enable DWT cycle counter for high-resolution timing.
+	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+	DWT->CYCCNT = 0;
+	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 }
 
 float timer_seconds_elapsed_since(uint32_t time) {
-	uint32_t diff = TIM5->CNT - time;
-	return (float)diff * (1.0 / (float)TIMER_HZ);
+	uint32_t diff = DWT->CYCCNT - time;
+	return (float)diff / (float)SystemCoreClock;
 }
 
 float timer_calc_diff(uint32_t start, uint32_t time) {
 	uint32_t diff = time - start;
-	return (float)diff * (1.0 / (float)TIMER_HZ);
+	return (float)diff / (float)SystemCoreClock;
 }
 
 /**
@@ -57,7 +44,7 @@ float timer_calc_diff(uint32_t start, uint32_t time) {
  * Seconds to sleep.
  */
 void timer_sleep(float seconds) {
-	uint32_t start_t = TIM5->CNT;
+	uint32_t start_t = DWT->CYCCNT;
 
 	for (;;) {
 		if (timer_seconds_elapsed_since(start_t) >= seconds) {

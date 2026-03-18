@@ -995,3 +995,4 @@ static void timer_start(routine_rate_t rate) {
 		chThdCreateStatic(routine_thread_wa, sizeof(routine_thread_wa), NORMALPRIO + 5, routine_thread, NULL);
 	}
 }
+

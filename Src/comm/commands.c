@@ -46,10 +46,16 @@
 #if HAS_BLACKMAGIC
 #include "bm_if.h"
 #endif
+#ifndef COMMANDS_USE_LZO
+#define COMMANDS_USE_LZO 0
+#endif
+
+#if COMMANDS_USE_LZO
 #include "minilzo.h"
+#endif
 #include "mempools.h"
 #include "bms.h"
-#include "qmlui.h"
+// qmlui is optional and not present in this port build.
 #include "crc.h"
 #ifdef USE_LISPBM
 #include "lispif.h"
@@ -336,8 +342,14 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			uint8_t *send_buffer_global = mempools_get_packet_buffer();
 			memcpy(send_buffer_global, data + 6, len - 6);
 			int32_t ind = 4;
+			#if COMMANDS_USE_LZO
 			lzo_uint decompressed_len = buffer_get_uint16(data, &ind);
 			lzo1x_decompress_safe(send_buffer_global, len - 6, data + 4, &decompressed_len, NULL);
+			#else
+			(void)data;
+			(void)ind;
+			return;
+			#endif
 			mempools_free_packet_buffer(send_buffer_global);
 			len = decompressed_len + 4;
 		}
@@ -357,8 +369,14 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			uint8_t *send_buffer_global = mempools_get_packet_buffer();
 			memcpy(send_buffer_global, data + 6, len - 6);
 			int32_t ind = 4;
+			#if COMMANDS_USE_LZO
 			lzo_uint decompressed_len = buffer_get_uint16(data, &ind);
 			lzo1x_decompress_safe(send_buffer_global, len - 6, data + 4, &decompressed_len, NULL);
+			#else
+			(void)data;
+			(void)ind;
+			return;
+			#endif
 			mempools_free_packet_buffer(send_buffer_global);
 			len = decompressed_len + 4;
 		}
@@ -2351,8 +2369,14 @@ static THD_FUNCTION(blocking_thread, arg) {
 			if (packet_id == COMM_BM_WRITE_FLASH_LZO) {
 				memcpy(send_buffer, data + 6, len - 6);
 				int32_t ind = 4;
+				#if COMMANDS_USE_LZO
 				lzo_uint decompressed_len = buffer_get_uint16(data, &ind);
 				lzo1x_decompress_safe(send_buffer, len - 6, data + 4, &decompressed_len, NULL);
+				#else
+				(void)data;
+				(void)ind;
+				return;
+				#endif
 				len = decompressed_len + 4;
 			}
 

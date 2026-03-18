@@ -102,8 +102,9 @@ static int debug_level;
 static status_msg_wrapper_t stat_msgs[STATUS_MSGS_TO_STORE];
 static bool refresh_parameters_enabled = true;
 
-// Threads
-static THD_WORKING_AREA(canard_thread_wa, 1024);
+// Threads — CMSIS-RTOS2 / FreeRTOS static allocation
+static StaticTask_t canard_thread_tcb;
+static StackType_t canard_thread_stack[1024];
 static THD_FUNCTION(canard_thread, arg);
 
 // Private functions
@@ -361,7 +362,15 @@ void canard_driver_init(void) {
 		stat_msgs[i].id = -1;
 	}
 
-	chThdCreateStatic(canard_thread_wa, sizeof(canard_thread_wa), NORMALPRIO, canard_thread, NULL);
+	osThreadNew((osThreadFunc_t)canard_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "canard",
+			.priority = osPriorityNormal,
+			.stack_mem = canard_thread_stack,
+			.stack_size = sizeof(canard_thread_stack),
+			.cb_mem = &canard_thread_tcb,
+			.cb_size = sizeof(canard_thread_tcb)
+		});
 
 	terminal_register_command_callback(
 		"uavcan_debug",

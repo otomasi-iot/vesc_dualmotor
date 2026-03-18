@@ -21,9 +21,7 @@
 
 #include "enc_bissc.h"
 
-#include "ch.h"
-#include "hal.h"
-#include "stm32f4xx_conf.h"
+#include "stm32f1xx_hal.h"
 #include "hw.h"
 #include "mc_interface.h"
 #include "utils_math.h"

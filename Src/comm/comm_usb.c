@@ -19,7 +19,7 @@
 
 #pragma GCC optimize ("Os")
 
-#include "ch.h"
+#include "cmsis_os2.h"
 #include "hal.h"
 #include "comm_usb.h"
 #include "packet.h"
@@ -128,11 +128,12 @@ void comm_usb_init(void) {
 }
 
 void comm_usb_send_packet(unsigned char *data, unsigned int len) {
-	chMtxLock(&send_mutex);
+	osMutexAcquire(&send_mutex);
 	packet_send_packet(data, len, &packet_state);
-	chMtxUnlock(&send_mutex);
+	osMutexRelease(&send_mutex);
 }
 
 unsigned int comm_usb_get_write_timeout_cnt(void) {
 	return write_timeout_cnt;
 }
+

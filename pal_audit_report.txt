@@ -1,0 +1,1179 @@
+
+FILE: Src\hwconf\ENNOID\MK8\hw_ENNOID_150V_mk8.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\ENNOID\MK8\hw_ENNOID_150V_mk8.h
+  - palSetPadMode: 2
+  - palClearPad: 6
+  - palReadPad: 3
+  - palSetPad: 6
+  TOTAL: 17
+
+FILE: Src\hwconf\example\hw_example_core.c
+  - palSetPadMode: 34
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 42
+
+FILE: Src\hwconf\example\hw_example_core.h
+  - palClearPad: 5
+  - palReadPad: 4
+  - palSetPad: 5
+  TOTAL: 14
+
+FILE: Src\hwconf\flipsky_official\flipsky_110\hw_flipsky_110_core.c
+  - palSetPadMode: 35
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\flipsky_official\flipsky_110\hw_flipsky_110_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\flipsky_official\flipsky_75_450\hw_flipsky_75_450.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\flipsky_official\flipsky_75_450\hw_flipsky_75_450.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\flipsky_official\flipsky_75\hw_flipsky_75_core.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\flipsky_official\flipsky_75\hw_flipsky_75_core.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\flipsky_official\flipsky_v4\hw_flipsky_412.c
+  - palSetPadMode: 35
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\flipsky_official\flipsky_v4\hw_flipsky_412.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\flipsky_official\flipsky_v6\hw_flipsky_60_core.c
+  - palSetPadMode: 40
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 48
+
+FILE: Src\hwconf\flipsky_official\flipsky_v6\hw_flipsky_60_core.h
+  - palSetPadMode: 5
+  - palClearPad: 10
+  - palReadPad: 4
+  - palSetPad: 9
+  TOTAL: 28
+
+FILE: Src\hwconf\flipsky\hw_75_100_V2.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\flipsky\hw_75_100_V2.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\flipsky\hw_75_100.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\flipsky\hw_75_100.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\flipsky\hw_fsesc_75_200_alu.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\flipsky\hw_fsesc_75_200_alu.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\flipsky\hw_fsesc_75_300.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\flipsky\hw_fsesc_75_300.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\floatwheel\hw_adv_core.c
+  - palSetPadMode: 34
+  - palClearPad: 4
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\floatwheel\hw_adv_core.h
+  - palClearPad: 2
+  - palReadPad: 3
+  - palSetPad: 2
+  TOTAL: 7
+
+FILE: Src\hwconf\fungineers\300\hw_Thor300_core.c
+  - palSetPadMode: 39
+  - palClearPad: 4
+  - palSetPad: 6
+  TOTAL: 49
+
+FILE: Src\hwconf\fungineers\300\hw_Thor300_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\fungineers\301\hw_Thor301_core.c
+  - palSetPadMode: 42
+  - palClearPad: 5
+  - palSetPad: 5
+  TOTAL: 52
+
+FILE: Src\hwconf\fungineers\301\hw_Thor301_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\fungineers\400\hw_Thor400_core.c
+  - palSetPadMode: 42
+  - palClearPad: 4
+  - palSetPad: 6
+  TOTAL: 52
+
+FILE: Src\hwconf\fungineers\400\hw_Thor400_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\ipm\ka160\hw_ka160.c
+  - palSetPadMode: 35
+  - palClearPad: 4
+  - palSetPad: 6
+  TOTAL: 45
+
+FILE: Src\hwconf\ipm\ka160\hw_ka160.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\itr\hw_itr_x1_core.c
+  - palSetPadMode: 39
+  - palClearPad: 3
+  - palReadPad: 8
+  - palSetPad: 5
+  TOTAL: 55
+
+FILE: Src\hwconf\itr\hw_itr_x1_core.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\JetFleet\hw_JetFleetF6_core.c
+  - palSetPadMode: 43
+  - palClearPad: 4
+  - palSetPad: 6
+  TOTAL: 53
+
+FILE: Src\hwconf\JetFleet\hw_JetFleetF6_core.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\luna\bbshd\hw_luna_bbshd.c
+  - palSetPadMode: 37
+  - palClearPad: 3
+  - palReadPad: 2
+  - palSetPad: 5
+  TOTAL: 47
+
+FILE: Src\hwconf\luna\bbshd\hw_luna_bbshd.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\luna\bbshd\luna_display_serial.c
+  - palSetPadMode: 2
+  TOTAL: 2
+
+FILE: Src\hwconf\luna\m600\hw_luna_m600_core.c
+  - palSetPadMode: 41
+  - palClearPad: 3
+  - palReadPad: 1
+  - palSetPad: 5
+  TOTAL: 50
+
+FILE: Src\hwconf\luna\m600\hw_luna_m600.h
+  - palSetPadMode: 2
+  - palClearPad: 9
+  - palReadPad: 3
+  - palSetPad: 9
+  TOTAL: 23
+
+FILE: Src\hwconf\luna\m600\luna_m600_display.c
+  - palSetPadMode: 1
+  - palClearPad: 1
+  TOTAL: 2
+
+FILE: Src\hwconf\makerbase\100_300_HP\hw_mksesc_100_300_hp.c
+  - palSetPadMode: 37
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 45
+
+FILE: Src\hwconf\makerbase\100_300_HP\hw_mksesc_100_300_hp.h
+  - palSetPadMode: 1
+  - palClearPad: 6
+  - palReadPad: 3
+  - palSetPad: 6
+  TOTAL: 16
+
+FILE: Src\hwconf\makerbase\75_100_V2\hw_mksesc_75_100_v2_core.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\makerbase\75_100_V2\hw_mksesc_75_100_v2_core.h
+  - palSetPadMode: 1
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 14
+
+FILE: Src\hwconf\makerbase\75_100\hw_mksesc_75_100_core.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\makerbase\75_100\hw_mksesc_75_100_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\makerbase\75_200_V2\hw_mksesc_75_200_v2_core.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\makerbase\75_200_V2\hw_mksesc_75_200_v2_core.h
+  - palSetPadMode: 1
+  - palClearPad: 6
+  - palReadPad: 3
+  - palSetPad: 6
+  TOTAL: 16
+
+FILE: Src\hwconf\makerbase\84_100_HP\hw_mksesc_84_100_hp.c
+  - palSetPadMode: 37
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 45
+
+FILE: Src\hwconf\makerbase\84_100_HP\hw_mksesc_84_100_hp.h
+  - palSetPadMode: 1
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 14
+
+FILE: Src\hwconf\makerbase\84_200_HP\hw_mksesc_84_200_hp.c
+  - palSetPadMode: 37
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 45
+
+FILE: Src\hwconf\makerbase\84_200_HP\hw_mksesc_84_200_hp.h
+  - palSetPadMode: 1
+  - palClearPad: 6
+  - palReadPad: 3
+  - palSetPad: 6
+  TOTAL: 16
+
+FILE: Src\hwconf\makerx\hw_go_foc_dv6_pro.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\makerx\hw_go_foc_dv6_pro.h
+  - palSetPadMode: 5
+  - palClearPad: 9
+  - palReadPad: 4
+  - palSetPad: 8
+  TOTAL: 26
+
+FILE: Src\hwconf\makerx\hw_go_foc_g300.c
+  - palSetPadMode: 37
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 45
+
+FILE: Src\hwconf\makerx\hw_go_foc_g300.h
+  - palSetPadMode: 1
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 14
+
+FILE: Src\hwconf\makerx\hw_go_foc_hi200.c
+  - palSetPadMode: 34
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 42
+
+FILE: Src\hwconf\makerx\hw_go_foc_hi200.h
+  - palClearPad: 3
+  - palReadPad: 3
+  - palSetPad: 3
+  TOTAL: 9
+
+FILE: Src\hwconf\makerx\hw_go_foc_hv200.c
+  - palSetPadMode: 34
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 42
+
+FILE: Src\hwconf\makerx\hw_go_foc_hv200.h
+  - palClearPad: 3
+  - palReadPad: 3
+  - palSetPad: 3
+  TOTAL: 9
+
+FILE: Src\hwconf\makerx\hw_go_foc_m100.c
+  - palSetPadMode: 35
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\makerx\hw_go_foc_m100.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\other\hw_axiom.c
+  - palSetPadMode: 45
+  - palWritePad: 1
+  - palClearPad: 8
+  - palReadPad: 3
+  - palSetPad: 10
+  TOTAL: 67
+
+FILE: Src\hwconf\other\hw_axiom.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\other\hw_gesc.c
+  - palSetPadMode: 34
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 42
+
+FILE: Src\hwconf\other\hw_gesc.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\other\hw_mbot.c
+  - palSetPadMode: 51
+  - palClearPad: 4
+  - palReadPad: 1
+  - palSetPad: 7
+  TOTAL: 63
+
+FILE: Src\hwconf\other\hw_mbot.h
+  - palClearPad: 11
+  - palReadPad: 6
+  - palSetPad: 10
+  TOTAL: 23
+
+FILE: Src\hwconf\other\hw_r2.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\other\hw_r2.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\other\hw_raiden7.c
+  - palSetPadMode: 34
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 42
+
+FILE: Src\hwconf\other\hw_raiden7.h
+  - palClearPad: 2
+  - palReadPad: 3
+  - palSetPad: 2
+  TOTAL: 7
+
+FILE: Src\hwconf\other\hw_spesc.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\other\hw_spesc.h
+  - palClearPad: 7
+  - palReadPad: 3
+  - palSetPad: 7
+  TOTAL: 17
+
+FILE: Src\hwconf\other\hw_unity.c
+  - palSetPadMode: 55
+  - palClearPad: 4
+  - palReadPad: 1
+  - palSetPad: 6
+  TOTAL: 66
+
+FILE: Src\hwconf\other\hw_unity.h
+  - palClearPad: 16
+  - palReadPad: 8
+  - palSetPad: 11
+  TOTAL: 31
+
+FILE: Src\hwconf\other\hw_warrior6.c
+  - palSetPadMode: 34
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 42
+
+FILE: Src\hwconf\other\hw_warrior6.h
+  - palClearPad: 2
+  - palReadPad: 3
+  - palSetPad: 2
+  TOTAL: 7
+
+FILE: Src\hwconf\other\vesc4\hw_40.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\other\vesc4\hw_40.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\other\vesc4\hw_410.c
+  - palSetPadMode: 35
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\other\vesc4\hw_410.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\other\vesc4\hw_45.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\other\vesc4\hw_45.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\other\vesc4\hw_46.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\other\vesc4\hw_46.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\other\vesc4\hw_48.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\other\vesc4\hw_48.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\other\vesc4\hw_49.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\other\vesc4\hw_49.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\repas\RSR_DD_V1\hw_RSR_DD_V1.c
+  - palSetPadMode: 30
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 38
+
+FILE: Src\hwconf\repas\RSR_DD_V1\hw_RSR_DD_V1.h
+  - palClearPad: 2
+  - palReadPad: 3
+  - palSetPad: 2
+  TOTAL: 7
+
+FILE: Src\hwconf\repas\RSR_DD_V2\hw_RSR_DD_V2_core.c
+  - palSetPadMode: 30
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 38
+
+FILE: Src\hwconf\repas\RSR_DD_V2\hw_RSR_DD_V2_core.h
+  - palClearPad: 2
+  - palReadPad: 3
+  - palSetPad: 2
+  TOTAL: 7
+
+FILE: Src\hwconf\shaman\Cheap_FOCer_2\hw_Cheap_FOCer_2_core.c
+  - palSetPadMode: 34
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 42
+
+FILE: Src\hwconf\shaman\Cheap_FOCer_2\hw_Cheap_FOCer_2_core.h
+  - palSetPadMode: 1
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 13
+
+FILE: Src\hwconf\shaman\hw_solo.c
+  - palSetPadMode: 34
+  - palClearPad: 4
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\shaman\hw_solo.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\shaman\Little_FOCer_4\hw_Little_FOCer_V4.c
+  - palSetPadMode: 36
+  - palClearPad: 4
+  - palReadPad: 1
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\shaman\Little_FOCer_4\hw_Little_FOCer_V4.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\shaman\Little_FOCer\hw_Little_FOCer_core.c
+  - palSetPadMode: 34
+  - palClearPad: 4
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\shaman\Little_FOCer\hw_Little_FOCer_core.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\stormcore\100D\hw_stormcore_100d_core.c
+  - palSetPadMode: 59
+  - palClearPad: 6
+  - palReadPad: 1
+  - palSetPad: 8
+  TOTAL: 74
+
+FILE: Src\hwconf\stormcore\100D\hw_stormcore_100d_core.h
+  - palClearPad: 19
+  - palReadPad: 8
+  - palSetPad: 17
+  TOTAL: 40
+
+FILE: Src\hwconf\stormcore\100S\hw_stormcore_100s.c
+  - palSetPadMode: 39
+  - palClearPad: 4
+  - palSetPad: 6
+  TOTAL: 49
+
+FILE: Src\hwconf\stormcore\100S\hw_stormcore_100s.h
+  - palSetPadMode: 3
+  - palClearPad: 9
+  - palReadPad: 5
+  - palSetPad: 9
+  TOTAL: 26
+
+FILE: Src\hwconf\stormcore\60D\hw_stormcore_60d_core.c
+  - palSetPadMode: 60
+  - palClearPad: 6
+  - palReadPad: 1
+  - palSetPad: 8
+  TOTAL: 75
+
+FILE: Src\hwconf\stormcore\60D\hw_stormcore_60d_core.h
+  - palClearPad: 19
+  - palReadPad: 8
+  - palSetPad: 17
+  TOTAL: 40
+
+FILE: Src\hwconf\teamtriforceuk\a100s_v4\hw_a100s_v4_core.c
+  - palSetPadMode: 39
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 47
+
+FILE: Src\hwconf\teamtriforceuk\a100s_v4\hw_a100s_v4_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 6
+  TOTAL: 13
+
+FILE: Src\hwconf\teamtriforceuk\a200s_v2\hw_a200s_v2_core.c
+  - palSetPadMode: 33
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 41
+
+FILE: Src\hwconf\teamtriforceuk\a200s_v2\hw_a200s_v2_core.h
+  - palClearPad: 2
+  - palReadPad: 3
+  - palSetPad: 2
+  TOTAL: 7
+
+FILE: Src\hwconf\teamtriforceuk\a200s_v3\hw_a200s_v3_core.c
+  - palSetPadMode: 39
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 47
+
+FILE: Src\hwconf\teamtriforceuk\a200s_v3\hw_a200s_v3_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 6
+  TOTAL: 13
+
+FILE: Src\hwconf\teamtriforceuk\a200s_v4\v4\hw_a200s_v4_core.c
+  - palSetPadMode: 45
+  - palClearPad: 5
+  - palSetPad: 6
+  TOTAL: 56
+
+FILE: Src\hwconf\teamtriforceuk\a200s_v4\v4\hw_a200s_v4_core.h
+  - palClearPad: 5
+  - palReadPad: 5
+  - palSetPad: 5
+  TOTAL: 15
+
+FILE: Src\hwconf\teamtriforceuk\a200s_v4\v41\hw_a200s_v41_core.c
+  - palSetPadMode: 39
+  - palClearPad: 3
+  - palReadPad: 1
+  - palSetPad: 5
+  TOTAL: 48
+
+FILE: Src\hwconf\teamtriforceuk\a200s_v4\v41\hw_a200s_v41_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\teamtriforceuk\a50s_dual\hw_a50s_dual_core.c
+  - palSetPadMode: 20
+  - palReadPad: 2
+  TOTAL: 22
+
+FILE: Src\hwconf\teamtriforceuk\a50s_dual\hw_a50s_dual_core.h
+  - palClearPad: 3
+  - palReadPad: 3
+  - palSetPad: 3
+  TOTAL: 9
+
+FILE: Src\hwconf\teamtriforceuk\a50s_v22\hw_a50s_v22_core.c
+  - palSetPadMode: 37
+  - palClearPad: 6
+  - palSetPad: 5
+  TOTAL: 48
+
+FILE: Src\hwconf\teamtriforceuk\a50s_v22\hw_a50s_v22_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\teamtriforceuk\a50s_v23\hw_a50s_v23_core.c
+  - palSetPadMode: 32
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 40
+
+FILE: Src\hwconf\teamtriforceuk\a50s_v23\hw_a50s_v23_core.h
+  - palClearPad: 3
+  - palReadPad: 3
+  - palSetPad: 3
+  TOTAL: 9
+
+FILE: Src\hwconf\teamtriforceuk\a50s_v23c\hw_a50s_v23c_core.c
+  - palSetPadMode: 32
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 40
+
+FILE: Src\hwconf\teamtriforceuk\a50s_v23c\hw_a50s_v23c_core.h
+  - palClearPad: 3
+  - palReadPad: 3
+  - palSetPad: 3
+  TOTAL: 9
+
+FILE: Src\hwconf\trampa\100_250_MKIII\hw_100_250_mkiii_core.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\trampa\100_250_MKIII\hw_100_250_mkiii_core.h
+  - palSetPadMode: 1
+  - palClearPad: 6
+  - palReadPad: 3
+  - palSetPad: 6
+  TOTAL: 16
+
+FILE: Src\hwconf\trampa\100_250\hw_100_250.c
+  - palSetPadMode: 35
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\trampa\100_250\hw_100_250.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\trampa\100_500\hw_100_500_core.c
+  - palSetPadMode: 35
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\trampa\100_500\hw_100_500_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\trampa\140_300\hw_140_300.c
+  - palSetPadMode: 35
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\trampa\140_300\hw_140_300.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\trampa\60_75\hw_60_75_core.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\trampa\60_75\hw_60_75_core.h
+  - palSetPadMode: 1
+  - palClearPad: 7
+  - palReadPad: 3
+  - palSetPad: 7
+  TOTAL: 18
+
+FILE: Src\hwconf\trampa\60_alva\hw_60v2_alva_core.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\trampa\60_alva\hw_60v2_alva_core.h
+  - palClearPad: 7
+  - palReadPad: 3
+  - palSetPad: 7
+  TOTAL: 17
+
+FILE: Src\hwconf\trampa\75_300_MKIV\hw_75_300_mkiv_core.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\trampa\75_300_MKIV\hw_75_300_mkiv_core.h
+  - palSetPadMode: 1
+  - palClearPad: 7
+  - palReadPad: 3
+  - palSetPad: 7
+  TOTAL: 18
+
+FILE: Src\hwconf\trampa\75_300\hw_75_300_core.c
+  - palSetPadMode: 36
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 44
+
+FILE: Src\hwconf\trampa\75_300\hw_75_300_core.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\trampa\hd\hw_hd60.c
+  - palSetPadMode: 36
+  - palClearPad: 4
+  - palSetPad: 5
+  TOTAL: 45
+
+FILE: Src\hwconf\trampa\hd\hw_hd60.h
+  - palSetPadMode: 1
+  - palClearPad: 5
+  - palReadPad: 4
+  - palSetPad: 5
+  TOTAL: 15
+
+FILE: Src\hwconf\trampa\hd\hw_hd75.c
+  - palSetPadMode: 36
+  - palClearPad: 4
+  - palSetPad: 5
+  TOTAL: 45
+
+FILE: Src\hwconf\trampa\hd\hw_hd75.h
+  - palSetPadMode: 1
+  - palClearPad: 5
+  - palReadPad: 4
+  - palSetPad: 5
+  TOTAL: 15
+
+FILE: Src\hwconf\trampa\rb\hw_rb_core.c
+  - palSetPadMode: 38
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 46
+
+FILE: Src\hwconf\trampa\rb\hw_rb_core.h
+  - palClearPad: 5
+  - palReadPad: 4
+  - palSetPad: 5
+  TOTAL: 14
+
+FILE: Src\hwconf\trampa\sparkf\hw_sparkf_core.c
+  - palSetPadMode: 35
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\trampa\sparkf\hw_sparkf_core.h
+  - palClearPad: 4
+  - palReadPad: 5
+  - palSetPad: 4
+  TOTAL: 13
+
+FILE: Src\hwconf\trampa\str500\hw_str500_core.c
+  - palSetPadMode: 42
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 50
+
+FILE: Src\hwconf\trampa\str500\hw_str500_core.h
+  - palSetPadMode: 1
+  - palClearPad: 10
+  - palReadPad: 3
+  - palSetPad: 10
+  TOTAL: 24
+
+FILE: Src\hwconf\trampa\vesc_edu\hw_edu_core.c
+  - palSetPadMode: 37
+  - palClearPad: 5
+  - palSetPad: 5
+  TOTAL: 47
+
+FILE: Src\hwconf\trampa\vesc_edu\hw_edu_core.h
+  - palSetPadMode: 5
+  - palClearPad: 9
+  - palReadPad: 3
+  - palSetPad: 10
+  TOTAL: 27
+
+FILE: Src\hwconf\trampa\vesc_gp\hw_gp_core.c
+  - palSetPadMode: 34
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 42
+
+FILE: Src\hwconf\trampa\vesc_gp\hw_gp_core.h
+  - palClearPad: 4
+  - palReadPad: 4
+  - palSetPad: 4
+  TOTAL: 12
+
+FILE: Src\hwconf\trampa\vesc6\hw_60_core.c
+  - palSetPadMode: 40
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 48
+
+FILE: Src\hwconf\trampa\vesc6\hw_60_core.h
+  - palSetPadMode: 5
+  - palClearPad: 10
+  - palReadPad: 4
+  - palSetPad: 9
+  TOTAL: 28
+
+FILE: Src\hwconf\tronic\hw_TRONIC_250R.c
+  - palSetPadMode: 34
+  - palClearPad: 4
+  - palSetPad: 5
+  TOTAL: 43
+
+FILE: Src\hwconf\tronic\hw_TRONIC_250R.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\tronic\hw_x12_pro24.c
+  - palSetPadMode: 39
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 47
+
+FILE: Src\hwconf\tronic\hw_x12_pro24.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\tronic\hw_x12_pro30.c
+  - palSetPadMode: 39
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 47
+
+FILE: Src\hwconf\tronic\hw_x12_pro30.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\Ubox\100v\hw_ubox_100_core.c
+  - palSetPadMode: 37
+  - palClearPad: 5
+  - palReadPad: 1
+  - palSetPad: 8
+  TOTAL: 51
+
+FILE: Src\hwconf\Ubox\100v\hw_ubox_100_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\Ubox\126v\hw_ubox_126_core.c
+  - palSetPadMode: 37
+  - palClearPad: 5
+  - palReadPad: 1
+  - palSetPad: 8
+  TOTAL: 51
+
+FILE: Src\hwconf\Ubox\126v\hw_ubox_126_core.h
+  - palClearPad: 4
+  - palReadPad: 3
+  - palSetPad: 4
+  TOTAL: 11
+
+FILE: Src\hwconf\Ubox\75v\hw_ubox_75_core.c
+  - palSetPadMode: 38
+  - palClearPad: 5
+  - palReadPad: 1
+  - palSetPad: 8
+  TOTAL: 52
+
+FILE: Src\hwconf\Ubox\75v\hw_ubox_75_core.h
+  - palClearPad: 5
+  - palReadPad: 3
+  - palSetPad: 5
+  TOTAL: 13
+
+FILE: Src\hwconf\vesc\basic\hw_basic_core.c
+  - palSetPadMode: 41
+  - palClearPad: 3
+  - palSetPad: 5
+  TOTAL: 49
+
+FILE: Src\hwconf\vesc\basic\hw_basic_core.h
+  - palClearPad: 6
+  - palReadPad: 3
+  - palSetPad: 6
+  TOTAL: 15
+
+FILE: Src\hwconf\vesc\classic\hw_classic_core.c
+  - palSetPadMode: 46
+  - palClearPad: 4
+  - palSetPad: 9
+  TOTAL: 59
+
+FILE: Src\hwconf\vesc\classic\hw_classic_core.h
+  - palClearPad: 12
+  - palReadPad: 3
+  - palSetPad: 11
+  TOTAL: 26
+
+FILE: Src\hwconf\vesc\classicp\hw_classicp_core.c
+  - palSetPadMode: 45
+  - palClearPad: 4
+  - palSetPad: 9
+  TOTAL: 58
+
+FILE: Src\hwconf\vesc\classicp\hw_classicp_core.h
+  - palClearPad: 12
+  - palReadPad: 3
+  - palSetPad: 11
+  TOTAL: 26
+
+FILE: Src\hwconf\vesc\duet_xs\hw_duet_xs_core.c
+  - palSetPadMode: 59
+  - palClearPad: 4
+  - palReadPad: 1
+  - palSetPad: 7
+  TOTAL: 71
+
+FILE: Src\hwconf\vesc\duet_xs\hw_duet_xs_core.h
+  - palClearPad: 18
+  - palReadPad: 6
+  - palSetPad: 17
+  TOTAL: 37
+
+FILE: Src\hwconf\vesc\duet\hw_duet_core.c
+  - palSetPadMode: 59
+  - palClearPad: 4
+  - palReadPad: 1
+  - palSetPad: 7
+  TOTAL: 71
+
+FILE: Src\hwconf\vesc\duet\hw_duet_core.h
+  - palClearPad: 18
+  - palReadPad: 6
+  - palSetPad: 17
+  TOTAL: 37
+
+FILE: Src\hwconf\vesc\maxim\hw_maxim_core.c
+  - palSetPadMode: 46
+  - palClearPad: 3
+  - palSetPad: 7
+  TOTAL: 56
+
+FILE: Src\hwconf\vesc\maxim\hw_maxim_core.h
+  - palSetPadMode: 3
+  - palClearPad: 9
+  - palReadPad: 3
+  - palSetPad: 9
+  TOTAL: 24
+
+FILE: Src\hwconf\vesc\maximp\hw_maximp_core.c
+  - palSetPadMode: 48
+  - palClearPad: 3
+  - palSetPad: 7
+  TOTAL: 58
+
+FILE: Src\hwconf\vesc\maximp\hw_maximp_core.h
+  - palClearPad: 9
+  - palReadPad: 3
+  - palSetPad: 9
+  TOTAL: 21
+
+FILE: Src\hwconf\vesc\minim\hw_minim_core.c
+  - palSetPadMode: 48
+  - palClearPad: 3
+  - palReadPad: 2
+  - palSetPad: 7
+  TOTAL: 60
+
+FILE: Src\hwconf\vesc\minim\hw_minim_core.h
+  - palClearPad: 12
+  - palReadPad: 3
+  - palSetPad: 12
+  TOTAL: 27
+
+FILE: Src\hwconf\vesc\pronto\hw_pronto_core.c
+  - palSetPadMode: 51
+  - palClearPad: 3
+  - palSetPad: 7
+  TOTAL: 61
+
+FILE: Src\hwconf\vesc\pronto\hw_pronto_core.h
+  - palSetPadMode: 1
+  - palClearPad: 10
+  - palReadPad: 3
+  - palSetPad: 10
+  TOTAL: 24
+
+FILE: Src\timeout.c
+  - palReadPad: 1
+  TOTAL: 1

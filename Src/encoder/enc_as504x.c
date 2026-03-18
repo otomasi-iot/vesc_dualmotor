@@ -20,9 +20,8 @@
 
 #include "enc_as504x.h"
 
-#include "ch.h"
-#include "hal.h"
-#include "stm32f4xx_conf.h"
+#include "stm32f1xx_hal.h"
+#include "hwconf/hal_gpio.h"
 #include "hw.h"
 #include "mc_interface.h"
 #include "utils_math.h"

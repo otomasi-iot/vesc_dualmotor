@@ -44,25 +44,25 @@
 #define LED_RED_GPIO			GPIOC
 #define LED_RED_PIN				12
 
-#define LED_GREEN_ON()			palSetPad(LED_GREEN_GPIO, LED_GREEN_PIN)
-#define LED_GREEN_OFF()			palClearPad(LED_GREEN_GPIO, LED_GREEN_PIN)
-#define LED_RED_ON()			palSetPad(LED_RED_GPIO, LED_RED_PIN)
-#define LED_RED_OFF()			palClearPad(LED_RED_GPIO, LED_RED_PIN)
+#define LED_GREEN_ON()			hal_gpio_set(LED_GREEN_GPIO, LED_GREEN_PIN)
+#define LED_GREEN_OFF()			hal_gpio_clear(LED_GREEN_GPIO, LED_GREEN_PIN)
+#define LED_RED_ON()			hal_gpio_set(LED_RED_GPIO, LED_RED_PIN)
+#define LED_RED_OFF()			hal_gpio_clear(LED_RED_GPIO, LED_RED_PIN)
 
 #define PHASE_FILTER_GPIO		GPIOB
 #define PHASE_FILTER_PIN		12
-#define PHASE_FILTER_ON()		palSetPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
-#define PHASE_FILTER_OFF()		palClearPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
+#define PHASE_FILTER_ON()		hal_gpio_set(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
+#define PHASE_FILTER_OFF()		hal_gpio_clear(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
 
 #define REG_GPIO				GPIOB
 #define REG_PIN					2
-#define REG_ON()				palSetPad(REG_GPIO, REG_PIN)
-#define REG_OFF()				palClearPad(REG_GPIO, REG_PIN)
+#define REG_ON()				hal_gpio_set(REG_GPIO, REG_PIN)
+#define REG_OFF()				hal_gpio_clear(REG_GPIO, REG_PIN)
 
 #define SWHV_GPIO				GPIOC
 #define SWHV_PIN				13
-#define SWHV_ON()				palSetPad(SWHV_GPIO, SWHV_PIN)
-#define SWHV_OFF()				palClearPad(SWHV_GPIO, SWHV_PIN)
+#define SWHV_ON()				hal_gpio_set(SWHV_GPIO, SWHV_PIN)
+#define SWHV_OFF()				hal_gpio_clear(SWHV_GPIO, SWHV_PIN)
 
 // ADC Mux
 #define ADC_SW_1_PORT			GPIOC
@@ -72,12 +72,12 @@
 #define ADC_SW_3_PORT			GPIOD
 #define ADC_SW_3_PIN			2
 
-#define AD1_L()					palClearPad(ADC_SW_1_PORT, ADC_SW_1_PIN)
-#define AD1_H()					palSetPad(ADC_SW_1_PORT, ADC_SW_1_PIN)
-#define AD2_L()					palClearPad(ADC_SW_2_PORT, ADC_SW_2_PIN)
-#define AD2_H()					palSetPad(ADC_SW_2_PORT, ADC_SW_2_PIN)
-#define AD3_L()					palClearPad(ADC_SW_3_PORT, ADC_SW_3_PIN)
-#define AD3_H()					palSetPad(ADC_SW_3_PORT, ADC_SW_3_PIN)
+#define AD1_L()					hal_gpio_clear(ADC_SW_1_PORT, ADC_SW_1_PIN)
+#define AD1_H()					hal_gpio_set(ADC_SW_1_PORT, ADC_SW_1_PIN)
+#define AD2_L()					hal_gpio_clear(ADC_SW_2_PORT, ADC_SW_2_PIN)
+#define AD2_H()					hal_gpio_set(ADC_SW_2_PORT, ADC_SW_2_PIN)
+#define AD3_L()					hal_gpio_clear(ADC_SW_3_PORT, ADC_SW_3_PIN)
+#define AD3_H()					hal_gpio_set(ADC_SW_3_PORT, ADC_SW_3_PIN)
 
 #define ADCMUX_MOT_TEMP()		AD3_L();	AD2_L();	AD1_L();
 #define ADCMUX_12V_SENSE_V()	AD3_L();	AD2_L();	AD1_H();
@@ -90,23 +90,24 @@
 
 #define AUX_GPIO				GPIOB
 #define AUX_PIN					7
-#define AUX_ON()				palSetPad(AUX_GPIO, AUX_PIN)
-#define AUX_OFF()				palClearPad(AUX_GPIO, AUX_PIN)
+#define AUX_ON()				hal_gpio_set(AUX_GPIO, AUX_PIN)
+#define AUX_OFF()				hal_gpio_clear(AUX_GPIO, AUX_PIN)
 
 #define AUX2_GPIO				GPIOC
 #define AUX2_PIN				13
-#define AUX2_ON()				palSetPad(AUX2_GPIO, AUX2_PIN)
-#define AUX2_OFF()				palClearPad(AUX2_GPIO, AUX2_PIN)
+#define AUX2_ON()				hal_gpio_set(AUX2_GPIO, AUX2_PIN)
+#define AUX2_OFF()				hal_gpio_clear(AUX2_GPIO, AUX2_PIN)
 
 // Shutdown pin
 #define HW_SHUTDOWN_GPIO		GPIOC
 #define HW_SHUTDOWN_PIN			5
-#define HW_SHUTDOWN_HOLD_ON()	palSetPad(HW_SHUTDOWN_GPIO, HW_SHUTDOWN_PIN)
-#define HW_SHUTDOWN_HOLD_OFF()	palClearPad(HW_SHUTDOWN_GPIO, HW_SHUTDOWN_PIN)
+#define HW_SHUTDOWN_HOLD_ON()\thal_gpio_set(HW_SHUTDOWN_GPIO, HW_SHUTDOWN_PIN)
+#define HW_SHUTDOWN_HOLD_OFF()\thal_gpio_clear(HW_SHUTDOWN_GPIO, HW_SHUTDOWN_PIN)
 #define HW_SAMPLE_SHUTDOWN()	hw_sample_shutdown_button()
 
 // Hold shutdown pin early to wake up on short pulses
-#define HW_EARLY_INIT()			palSetPadMode(HW_SHUTDOWN_GPIO, HW_SHUTDOWN_PIN, PAL_MODE_OUTPUT_PUSHPULL); \
+#include "hwconf/hal_gpio.h"
+#define HW_EARLY_INIT()			hal_gpio_init_output(HW_SHUTDOWN_GPIO, HW_SHUTDOWN_PIN); \
 								HW_SHUTDOWN_HOLD_ON();
 
 /*
@@ -290,9 +291,9 @@
 #define ADC_V_ZERO				(ADC_Value[ADC_IND_VIN_SENS] / 2)
 
 // Macros
-#define READ_HALL1()			palReadPad(HW_HALL_ENC_GPIO1, HW_HALL_ENC_PIN1)
-#define READ_HALL2()			palReadPad(HW_HALL_ENC_GPIO2, HW_HALL_ENC_PIN2)
-#define READ_HALL3()			palReadPad(HW_HALL_ENC_GPIO3, HW_HALL_ENC_PIN3)
+#define READ_HALL1()			hal_gpio_read(HW_HALL_ENC_GPIO1, HW_HALL_ENC_PIN1)
+#define READ_HALL2()			hal_gpio_read(HW_HALL_ENC_GPIO2, HW_HALL_ENC_PIN2)
+#define READ_HALL3()			hal_gpio_read(HW_HALL_ENC_GPIO3, HW_HALL_ENC_PIN3)
 
 // Override dead time. See the stm32f4 reference manual for calculating this value.
 #define HW_DEAD_TIME_NSEC		600.0

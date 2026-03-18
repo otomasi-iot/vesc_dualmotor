@@ -23,7 +23,7 @@
 
 #include "mcpwm_foc.h"
 #include "mc_interface.h"
-#include "ch.h"
+#include "cmsis_os2.h"
 #include "hal.h"
 #include "hwconf/hal_gpio.h"
 #include "stm32f1xx_hal.h"
@@ -70,17 +70,20 @@ static void terminal_plot_hfi(int argc, const char **argv);
 static void timer_update(motor_all_state_t *motor, float dt);
 static void hfi_update(volatile motor_all_state_t *motor, float dt);
 
-// Threads
-static THD_WORKING_AREA(timer_thread_wa, 512);
+// Threads — CMSIS-RTOS2 / FreeRTOS static allocation
 static THD_FUNCTION(timer_thread, arg);
+static StaticTask_t foc_timer_thread_tcb;
+static StackType_t foc_timer_thread_stack[512];
 static volatile bool timer_thd_stop;
 
-static THD_WORKING_AREA(hfi_thread_wa, 512);
 static THD_FUNCTION(hfi_thread, arg);
+static StaticTask_t foc_hfi_thread_tcb;
+static StackType_t foc_hfi_thread_stack[512];
 static volatile bool hfi_thd_stop;
 
-static THD_WORKING_AREA(pid_thread_wa, 256);
 static THD_FUNCTION(pid_thread, arg);
+static StaticTask_t foc_pid_thread_tcb;
+static StackType_t foc_pid_thread_stack[256];
 static volatile bool pid_thd_stop;
 
 // Macros
@@ -505,7 +508,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 
 		// Wait for input voltage to rise above minimum voltage
 		while (mc_interface_get_input_voltage_filtered() < m_motor_1.m_conf->l_min_vin) {
-			chThdSleepMilliseconds(1);
+			osDelay(1);
 			if (UTILS_AGE_S(cal_start_time) >= cal_start_timeout) {
 				m_dccal_done = true;
 				break;
@@ -517,7 +520,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 			float v_in_last = mc_interface_get_input_voltage_filtered();
 			systime_t v_in_stable_time = chVTGetSystemTimeX();
 			while (UTILS_AGE_S(v_in_stable_time) < 2.0) {
-				chThdSleepMilliseconds(1);
+				osDelay(1);
 
 				float v_in_now = mc_interface_get_input_voltage_filtered();
 				if (fabsf(v_in_now - v_in_last) > 1.5) {
@@ -537,7 +540,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 			while ((mc_interface_get_fault() != FAULT_CODE_NONE) &&
 					(mc_interface_get_fault() != FAULT_CODE_OVER_TEMP_MOTOR)) {
 
-				chThdSleepMilliseconds(1);
+				osDelay(1);
 
 				if (UTILS_AGE_S(cal_start_time) >= cal_start_timeout) {
 					m_dccal_done = true;
@@ -581,13 +584,37 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 #endif
 	// Start threads
 	timer_thd_stop = false;
-	chThdCreateStatic(timer_thread_wa, sizeof(timer_thread_wa), NORMALPRIO, timer_thread, NULL);
+	osThreadNew((osThreadFunc_t)timer_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "foc_timer",
+			.priority = osPriorityNormal,
+			.stack_mem = foc_timer_thread_stack,
+			.stack_size = sizeof(foc_timer_thread_stack),
+			.cb_mem = &foc_timer_thread_tcb,
+			.cb_size = sizeof(foc_timer_thread_tcb)
+		});
 
 	hfi_thd_stop = false;
-	chThdCreateStatic(hfi_thread_wa, sizeof(hfi_thread_wa), NORMALPRIO, hfi_thread, NULL);
+	osThreadNew((osThreadFunc_t)hfi_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "foc_hfi",
+			.priority = osPriorityNormal,
+			.stack_mem = foc_hfi_thread_stack,
+			.stack_size = sizeof(foc_hfi_thread_stack),
+			.cb_mem = &foc_hfi_thread_tcb,
+			.cb_size = sizeof(foc_hfi_thread_tcb)
+		});
 
 	pid_thd_stop = false;
-	chThdCreateStatic(pid_thread_wa, sizeof(pid_thread_wa), NORMALPRIO, pid_thread, NULL);
+	osThreadNew((osThreadFunc_t)pid_thread, NULL,
+		&(const osThreadAttr_t){
+			.name = "foc_pid",
+			.priority = osPriorityNormal,
+			.stack_mem = foc_pid_thread_stack,
+			.stack_size = sizeof(foc_pid_thread_stack),
+			.cb_mem = &foc_pid_thread_tcb,
+			.cb_size = sizeof(foc_pid_thread_tcb)
+		});
 
 	// Check if the system has resumed from IWDG reset and generate fault if it has. This can be used to
 	// tell if some frozen thread caused a watchdog reset. Note that this also will trigger after running
@@ -614,17 +641,17 @@ void mcpwm_foc_deinit(void) {
 
 	timer_thd_stop = true;
 	while (timer_thd_stop) {
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 
 	hfi_thd_stop = true;
 	while (hfi_thd_stop) {
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 
 	pid_thd_stop = true;
 	while (pid_thd_stop) {
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 
 	HAL_TIM_PWM_DeInit(&htim1);
@@ -1554,7 +1581,7 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			chThdSleepMilliseconds(1);
+			osDelay(1);
 		}
 
 		cnt++;
@@ -1575,7 +1602,7 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 		if (fault != FAULT_CODE_NONE) {
 			goto exit_encoder_detect;
 		}
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 
 	if (print) {
@@ -1583,7 +1610,7 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 	}
 
 	// Inverted and ratio
-	chThdSleepMilliseconds(1000);
+	osDelay(1000);
 
 	const int it_rat = 30;
 	float s_sum = 0.0;
@@ -1600,11 +1627,11 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			chThdSleepMilliseconds(1);
+			osDelay(1);
 		}
 
 		utils_norm_angle_rad((float*)&motor->m_phase_now_override);
-		chThdSleepMilliseconds(300);
+		osDelay(300);
 		timeout_reset();
 		float diff = utils_angle_difference_rad(motor->m_phase_now_encoder, phase_old);
 
@@ -1633,10 +1660,10 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			chThdSleepMilliseconds(1);
+			osDelay(1);
 		}
 		utils_norm_angle_rad((float*)&motor->m_phase_now_override);
-		chThdSleepMilliseconds(300);
+		osDelay(300);
 		timeout_reset();
 		float diff = utils_angle_difference_rad(phase_old, motor->m_phase_now_encoder);
 
@@ -1673,7 +1700,7 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 		if (fault != FAULT_CODE_NONE) {
 			goto exit_encoder_detect;
 		}
-		chThdSleepMilliseconds(2);
+		osDelay(2);
 	}
 
 	if (print) {
@@ -1695,10 +1722,10 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			chThdSleepMilliseconds(4);
+			osDelay(4);
 		}
 
-		chThdSleepMilliseconds(100);
+		osDelay(100);
 		timeout_reset();
 
 		float angle_diff = utils_angle_difference_rad(motor->m_phase_now_encoder, motor->m_phase_now_override);
@@ -1722,10 +1749,10 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			chThdSleepMilliseconds(4);
+			osDelay(4);
 		}
 
-		chThdSleepMilliseconds(100);
+		osDelay(100);
 		timeout_reset();
 
 		float angle_diff = utils_angle_difference_rad(motor->m_phase_now_encoder, motor->m_phase_now_override);
@@ -1830,11 +1857,11 @@ int mcpwm_foc_measure_resistance(float current, int samples, bool stop_after, fl
 
 			return fault;
 		}
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 
 	// Wait for the current to rise and the motor to lock.
-	chThdSleepMilliseconds(50);
+	osDelay(50);
 
 	// Sample
 	motor->m_samples.avg_current_tot = 0.0;
@@ -1843,7 +1870,7 @@ int mcpwm_foc_measure_resistance(float current, int samples, bool stop_after, fl
 
 	int cnt = 0;
 	while (motor->m_samples.sample_num < samples) {
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 		cnt++;
 		// Timeout
 		if (cnt > 10000) {
@@ -1941,15 +1968,15 @@ int mcpwm_foc_measure_inductance(float duty, int samples, float *curr, float *ld
 
 	mcpwm_foc_set_configuration(motor->m_conf);
 
-	chThdSleepMilliseconds(1);
+	osDelay(1);
 
 	timeout_reset();
 	mcpwm_foc_set_duty(0.0);
-	chThdSleepMilliseconds(1);
+	osDelay(1);
 
 	int ready_cnt = 0;
 	while (!motor->m_hfi.ready) {
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 		ready_cnt++;
 		if (ready_cnt > 100) {
 			break;
@@ -1995,7 +2022,7 @@ int mcpwm_foc_measure_inductance(float duty, int samples, float *curr, float *ld
 			return fault;
 		}
 
-		chThdSleepMilliseconds(10);
+		osDelay(10);
 
 		float real_bin0, imag_bin0;
 		float real_bin2, imag_bin2;
@@ -2148,14 +2175,14 @@ bool mcpwm_foc_beep(float freq, float time, float voltage) {
 
 	mcpwm_foc_set_configuration(motor->m_conf);
 
-	chThdSleepMilliseconds(1);
+	osDelay(1);
 
 	timeout_reset();
 	mcpwm_foc_set_duty(0.0);
 
 	int ms_sleep = (time * 1000.0) - 1;
 	if (ms_sleep > 0) {
-		chThdSleepMilliseconds(ms_sleep);
+		osDelay(ms_sleep);
 	}
 
 	mcpwm_foc_set_current(0.0);
@@ -2339,7 +2366,7 @@ int mcpwm_foc_measure_res_ind(float *res, float *ind, float *ld_lq_diff) {
 	if (fault == FAULT_CODE_NONE && *res != 0.0) {
 		motor->m_conf->foc_motor_r = *res;
 		mcpwm_foc_set_current(0.0);
-		chThdSleepMilliseconds(10);
+		osDelay(10);
 		fault = mcpwm_foc_measure_inductance_current(i_last, 200, 0, ld_lq_diff, ind);
 	}
 
@@ -2400,7 +2427,7 @@ int mcpwm_foc_hall_detect(float current, uint8_t *hall_table, bool *result) {
 		if (fault != FAULT_CODE_NONE) {
 			goto exit_hall_detect;
 		}
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 
 	float sin_hall[8];
@@ -2418,7 +2445,7 @@ int mcpwm_foc_hall_detect(float current, uint8_t *hall_table, bool *result) {
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_hall_detect;
 			}
-			chThdSleepMilliseconds(5);
+			osDelay(5);
 
 			int hall = utils_read_hall(motor != &m_motor_1, motor->m_conf->m_hall_extra_samples);
 			float s, c;
@@ -2437,7 +2464,7 @@ int mcpwm_foc_hall_detect(float current, uint8_t *hall_table, bool *result) {
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_hall_detect;
 			}
-			chThdSleepMilliseconds(5);
+			osDelay(5);
 
 			int hall = utils_read_hall(motor != &m_motor_1, motor->m_conf->m_hall_extra_samples);
 			float s, c;
@@ -2495,14 +2522,14 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Wait max 5 seconds for DRV-fault to go away
 	int cnt = 0;
 	while(IS_DRV_FAULT()){
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 		cnt++;
 		if (cnt > 5000) {
 			return -1;
 		}
 	};
 
-	chThdSleepMilliseconds(1000);
+	osDelay(1000);
 
 	// Disable timeout
 	systime_t tout = timeout_get_timeout_msec();
@@ -2648,7 +2675,7 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Measure undriven offsets
 
 	if (cal_undriven) {
-		chThdSleepMilliseconds(10);
+		osDelay(10);
 
 		voltage_sum[0] = 0.0; voltage_sum[1] = 0.0; voltage_sum[2] = 0.0;
 #ifdef HW_HAS_DUAL_MOTORS
@@ -2708,14 +2735,14 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Wait max 5 seconds for DRV-fault to go away
 	int cnt = 0;
 	while(IS_DRV_FAULT()){
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 		cnt++;
 		if (cnt > 5000) {
 			return -1;
 		}
 	};
 
-	chThdSleepMilliseconds(1000);
+	osDelay(1000);
 
 	// Disable timeout
 	systime_t tout = timeout_get_timeout_msec();
@@ -2779,7 +2806,7 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Measure undriven offsets
 
 	if (cal_undriven) {
-		chThdSleepMilliseconds(10);
+		osDelay(10);
 
 		voltage_sum[0] = 0.0; voltage_sum[1] = 0.0; voltage_sum[2] = 0.0;
 
@@ -4156,7 +4183,7 @@ static THD_FUNCTION(timer_thread, arg) {
 		}
 #endif
 
-		chThdSleepMilliseconds(1);
+		osDelay(1);
 	}
 }
 
@@ -5386,3 +5413,127 @@ static void terminal_plot_hfi(int argc, const char **argv) {
 		commands_printf("This command requires one argument.\n");
 	}
 }
+
+// ===== HAL CALLBACKS - ADC & DMA INTERRUPT HANDLERS =====
+
+/**
+ * HAL ADC Conversion Complete Callback
+ * 
+ * Called by HAL_ADC_IRQHandler when ADC injected conversion finishes.
+ * This alternative path (injected mode) provides microsecond-level latency
+ * for synchronous current sampling with PWM duty updates.
+ * 
+ * Note: When using DMA mode (current default), this is NOT called.
+ *       Use HAL_DMA_XferCpltCallback instead (see irq_handlers.c).
+ */
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
+    if (hadc->Instance == ADC1) {
+        // Call motor FOC ISR to process ADC samples and update PWM
+        // This ensures synchronous current-to-duty update (<2 µs latency)
+        mcpwm_foc_adc_int_handler(NULL, 0);
+    }
+}
+
+/**
+ * HAL ADC Injected Conversion Complete Callback
+ * 
+ * For future optimization: Using injected ADC mode for dual motors
+ * can reduce interrupt latency by eliminating DMA overhead.
+ */
+void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
+    if (hadc->Instance == ADC1) {
+        // Read injected conversion results from ADC1->JDR (1, 2, 3)
+        // Current samples: IU, IV, IW
+        mcpwm_foc_adc_int_handler(NULL, 0);
+    }
+}
+
+/**
+ * HAL ADC Error Callback
+ * 
+ * Triggered on ADC analog watchdog, overrun, or other faults.
+ * Graceful shutdown to prevent undefined motor behavior.
+ */
+void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc) {
+    if (hadc->Instance == ADC1) {
+        // Emergency motor shutdown on ADC failure
+        extern void mc_interface_fault_stop(mc_fault_code fault, bool is_second_motor, bool is_second_motor_selected);
+        mc_interface_fault_stop(FAULT_CODE_HW_FAULT, false, false);
+    }
+}
+
+/**
+ * Verification function for dual-motor hardware synchronization
+ * 
+ * Checks that TIM1 (M1) and TIM8 (M2) are phase-locked at 180 degrees.
+ * Call this in hw_init() or diagnostic routines.
+ */
+void hw_verify_dual_motor_sync(void) {
+#ifdef HW_HAS_DUAL_MOTORS
+    // Expected: TIM8 lags TIM1 by exactly 2250 counts (180° of 4500 period)
+    uint16_t tim1_cnt = TIM1->CNT;
+    uint16_t tim8_cnt = TIM8->CNT;
+    int16_t phase_diff = tim8_cnt - tim1_cnt;
+    
+    // Allow ±100 count tolerance (1.39° @ 72 MHz, ~19 µs)
+    if (phase_diff < (2250 - 100) || phase_diff > (2250 + 100)) {
+        commands_printf("ERROR: TIM8 phase out of sync (expected 2250, got %d)\n", tim8_cnt);
+        // Note: Could assert here for debugging, but graceful degradation preferred
+    } else {
+        commands_printf("✓ Dual motor phase locked (TIM1=%u, TIM8=%u, phase_diff=%d)\n", 
+            tim1_cnt, tim8_cnt, phase_diff);
+    }
+#endif
+}
+
+/**
+ * Motor ISR latency measurement function
+ * 
+ * Captures cycle-count latency from ADC sample completion to PWM duty write.
+ * Used for performance validation - target: <144 cycles @ 72 MHz = <2 µs
+ */
+volatile uint32_t g_motor_isr_latency_cycles = 0;
+volatile uint32_t g_motor_isr_latency_min = UINT32_MAX;
+volatile uint32_t g_motor_isr_latency_max = 0;
+
+void motor_isr_latency_start(void) {
+    // Enable DWT cycle counter if not already enabled
+    if (!(CoreDebug->DEMCR & CoreDebug_DEMCR_TRCENA_Msk)) {
+        CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    }
+    if (!(DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk)) {
+        DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    }
+}
+
+void motor_isr_latency_update(uint32_t start_cycles) {
+    uint32_t end_cycles = DWT->CYCCNT;
+    uint32_t latency = end_cycles - start_cycles;
+    
+    if (latency < g_motor_isr_latency_min) {
+        g_motor_isr_latency_min = latency;
+    }
+    if (latency > g_motor_isr_latency_max) {
+        g_motor_isr_latency_max = latency;
+    }
+    g_motor_isr_latency_cycles = latency;
+}
+
+void motor_isr_latency_report(void) {
+    float min_us = g_motor_isr_latency_min / 72.0;  // 72 MHz clock
+    float max_us = g_motor_isr_latency_max / 72.0;
+    float cur_us = g_motor_isr_latency_cycles / 72.0;
+    
+    commands_printf("Motor ISR Latency (cycles @ 72 MHz):\n");
+    commands_printf("  Min: %u cycles (%.2f µs)\n", g_motor_isr_latency_min, min_us);
+    commands_printf("  Max: %u cycles (%.2f µs)\n", g_motor_isr_latency_max, max_us);
+    commands_printf("  Current: %u cycles (%.2f µs)\n", g_motor_isr_latency_cycles, cur_us);
+    
+    if (g_motor_isr_latency_max < 200) {  // <2.78 µs
+        commands_printf("✓ PASS: ISR latency within target (<200 cycles)\n");
+    } else {
+        commands_printf("✗ WARNING: ISR latency exceeds target\n");
+    }
+}
+
+

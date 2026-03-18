@@ -123,3 +123,85 @@ bool mmc_lld_is_write_protected(MMCDriver *mmcp) {
  */
 void boardInit(void) {
 }
+
+#include "hwconf/hal_gpio.h"
+#include "hwconf/pins.h"
+
+void hw_init_gpio(void) {
+    // Enable ALL GPIO clocks
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
+  
+    // ===== MOTOR 1 GATE DRIVERS =====
+    hal_gpio_init_output(GATE_M1_UH_PORT, GATE_M1_UH_PIN);
+    hal_gpio_init_output(GATE_M1_UL_PORT, GATE_M1_UL_PIN);
+    hal_gpio_init_output(GATE_M1_VH_PORT, GATE_M1_VH_PIN);
+    hal_gpio_init_output(GATE_M1_VL_PORT, GATE_M1_VL_PIN);
+    hal_gpio_init_output(GATE_M1_WH_PORT, GATE_M1_WH_PIN);
+    hal_gpio_init_output(GATE_M1_WL_PORT, GATE_M1_WL_PIN);
+  
+    // ===== MOTOR 2 GATE DRIVERS =====
+    hal_gpio_init_output(GATE_M2_UH_PORT, GATE_M2_UH_PIN);
+    hal_gpio_init_output(GATE_M2_UL_PORT, GATE_M2_UL_PIN);
+    hal_gpio_init_output(GATE_M2_VH_PORT, GATE_M2_VH_PIN);
+    hal_gpio_init_output(GATE_M2_VL_PORT, GATE_M2_VL_PIN);
+    hal_gpio_init_output(GATE_M2_WH_PORT, GATE_M2_WH_PIN);
+    hal_gpio_init_output(GATE_M2_WL_PORT, GATE_M2_WL_PIN);
+  
+    // ===== FAULT INPUTS =====
+    hal_gpio_init_input(FAULT_M1_PORT, FAULT_M1_PIN);
+    hal_gpio_init_input(FAULT_M2_PORT, FAULT_M2_PIN);
+  
+    // ===== LEDs =====
+    hal_gpio_init_output(LED_PORT, LED_PIN);
+  
+    // ===== HALL SENSORS =====
+    hal_gpio_init_input_pullup(HALL_M1_A_PORT, HALL_M1_A_PIN);
+    hal_gpio_init_input_pullup(HALL_M1_B_PORT, HALL_M1_B_PIN);
+    hal_gpio_init_input_pullup(HALL_M1_C_PORT, HALL_M1_C_PIN);
+  
+    hal_gpio_init_input_pullup(HALL_M2_A_PORT, HALL_M2_A_PIN);
+    hal_gpio_init_input_pullup(HALL_M2_B_PORT, HALL_M2_B_PIN);
+    hal_gpio_init_input_pullup(HALL_M2_C_PORT, HALL_M2_C_PIN);
+  
+    // ===== I2C BIT-BANG PINS =====
+    hal_gpio_init_input_pullup(I2C_SCL_PORT, I2C_SCL_PIN);
+    hal_gpio_init_input_pullup(I2C_SDA_PORT, I2C_SDA_PIN);
+  
+    // Set initial gate states to LOW (safe)
+    hal_gpio_write(GATE_M1_UH_PORT, GATE_M1_UH_PIN, 0);
+    hal_gpio_write(GATE_M1_UL_PORT, GATE_M1_UL_PIN, 0);
+    hal_gpio_write(GATE_M1_VH_PORT, GATE_M1_VH_PIN, 0);
+    hal_gpio_write(GATE_M1_VL_PORT, GATE_M1_VL_PIN, 0);
+    hal_gpio_write(GATE_M1_WH_PORT, GATE_M1_WH_PIN, 0);
+    hal_gpio_write(GATE_M1_WL_PORT, GATE_M1_WL_PIN, 0);
+  
+    hal_gpio_write(GATE_M2_UH_PORT, GATE_M2_UH_PIN, 0);
+    hal_gpio_write(GATE_M2_UL_PORT, GATE_M2_UL_PIN, 0);
+    hal_gpio_write(GATE_M2_VH_PORT, GATE_M2_VH_PIN, 0);
+    hal_gpio_write(GATE_M2_VL_PORT, GATE_M2_VL_PIN, 0);
+    hal_gpio_write(GATE_M2_WH_PORT, GATE_M2_WH_PIN, 0);
+    hal_gpio_write(GATE_M2_WL_PORT, GATE_M2_WL_PIN, 0);
+}
+
+/**
+ * Dual-Motor Hardware Synchronization Verification
+ * 
+ * Confirms TIM1 (M1) and TIM8 (M2) are phase-locked with 180° offset.
+ * Call this after mcpwm_init_hardware() completes to validate sync.
+ * 
+ * Expected values:
+ * - TIM1->ARR = TIM8->ARR = 4499 (16 kHz @ 72 MHz)
+ * - TIM8->CNT should lag TIM1->CNT by ~2250 counts (180° phase)
+ * - Phase tolerance: ±100 counts (~1.4° or 19 µs)
+ */
+void hw_verify_dual_motor_sync_init(void) {
+    #ifdef HW_HAS_DUAL_MOTORS
+    extern void hw_verify_dual_motor_sync(void);
+    hw_verify_dual_motor_sync();
+    #endif
+}

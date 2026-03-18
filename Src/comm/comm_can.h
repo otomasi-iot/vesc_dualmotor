@@ -23,6 +23,25 @@
 #include "conf_general.h"
 #include "hal.h"
 
+#if !CAN_ENABLE
+// CAN disabled: provide minimal types/symbols so other modules compile.
+typedef struct {
+	uint32_t dummy;
+} CANRxFrame;
+
+static inline void comm_can_init(void) {}
+static inline CAN_BAUD comm_can_kbits_to_baud(int kbits) { (void)kbits; return (CAN_BAUD)0; }
+static inline void comm_can_set_baud(CAN_BAUD baud, int delay_msec) { (void)baud; (void)delay_msec; }
+static inline msg_t comm_can_transmit_eid(uint32_t id, const uint8_t *data, uint8_t len) { (void)id; (void)data; (void)len; return 0; }
+static inline msg_t comm_can_transmit_eid_if(uint32_t id, const uint8_t *data, uint8_t len, int interface) { (void)interface; return comm_can_transmit_eid(id, data, len); }
+static inline msg_t comm_can_transmit_eid_replace(uint32_t id, const uint8_t *data, uint8_t len, bool replace, int interface) { (void)replace; (void)interface; return comm_can_transmit_eid(id, data, len); }
+static inline msg_t comm_can_transmit_sid(uint32_t id, const uint8_t *data, uint8_t len) { return comm_can_transmit_eid(id, data, len); }
+static inline void comm_can_set_sid_rx_callback(bool (*p_func)(uint32_t id, uint8_t *data, uint8_t len)) { (void)p_func; }
+static inline void comm_can_set_eid_rx_callback(bool (*p_func)(uint32_t id, uint8_t *data, uint8_t len)) { (void)p_func; }
+static inline CANRxFrame *comm_can_get_rx_frame(int interface) { (void)interface; return 0; }
+
+#else
+
 // Settings
 #define CAN_STATUS_MSGS_TO_STORE	10
 
@@ -96,5 +115,7 @@ void comm_can_send_status3(uint8_t id, bool replace);
 void comm_can_send_status4(uint8_t id, bool replace);
 void comm_can_send_status5(uint8_t id, bool replace);
 void comm_can_send_status6(uint8_t id, bool replace);
+
+#endif
 
 #endif /* COMM_CAN_H_ */

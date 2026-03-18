@@ -40,10 +40,10 @@
 #define LED_RED_GPIO			GPIOC
 #define LED_RED_PIN				12
 
-#define LED_GREEN_ON()			palSetPad(LED_GREEN_GPIO, LED_GREEN_PIN)
-#define LED_GREEN_OFF()			palClearPad(LED_GREEN_GPIO, LED_GREEN_PIN)
-#define LED_RED_ON()			palSetPad(LED_RED_GPIO, LED_RED_PIN)
-#define LED_RED_OFF()			palClearPad(LED_RED_GPIO, LED_RED_PIN)
+#define LED_GREEN_ON()			hal_gpio_set(LED_GREEN_GPIO, LED_GREEN_PIN)
+#define LED_GREEN_OFF()			hal_gpio_clear(LED_GREEN_GPIO, LED_GREEN_PIN)
+#define LED_RED_ON()			hal_gpio_set(LED_RED_GPIO, LED_RED_PIN)
+#define LED_RED_OFF()			hal_gpio_clear(LED_RED_GPIO, LED_RED_PIN)
 
 #define PHASE_FILTER_OFF()		palSetPad(GPIOB, 12); palSetPad(GPIOA, 11); palSetPad(GPIOA, 12)
 #define PHASE_FILTER_ON()		palClearPad(GPIOB, 12); palClearPad(GPIOA, 11); palClearPad(GPIOA, 12)

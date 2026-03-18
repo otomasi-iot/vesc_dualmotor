@@ -25,7 +25,7 @@
 
 void spi_bb_init(spi_bb_state *s) {
 	if (!s->mutex_init_done) {
-		chMtxObjectInit(&s->mutex);
+		const osMutexAttr_t attr = {.name = "spi_bb_lock"}; s->mutex = osMutexNew(&attr);
 		s->mutex_init_done = true;
 	}
 
@@ -35,8 +35,8 @@ void spi_bb_init(spi_bb_state *s) {
 
 	if (s->mosi_gpio) {
 		hal_gpio_init_output(s->mosi_gpio, s->mosi_pin);
-		hal_gpio_set(s->mosi_gpio, s->mosi_pin);
-		hal_gpio_set(s->nss_gpio, s->nss_pin);
+		hal_gpio_write(s->mosi_gpio, s->mosi_pin, 1);
+		hal_gpio_write(s->nss_gpio, s->nss_pin, 1);
 	}
 }
 
@@ -51,7 +51,7 @@ void spi_bb_deinit(spi_bb_state *s) {
 }
 
 void ssc_bb_init(spi_bb_state *s) {
-	chMtxObjectInit(&s->mutex);
+	const osMutexAttr_t attr = {.name = "spi_bb_lock"}; s->mutex = osMutexNew(&attr);
 
 	if (s->mosi_gpio && s->nss_gpio && s->sck_gpio) { // TODO: test
 		hal_gpio_init_input_pullup(s->mosi_gpio, s->mosi_pin);
@@ -59,12 +59,12 @@ void ssc_bb_init(spi_bb_state *s) {
 		hal_gpio_init_output(s->nss_gpio, s->nss_pin);
 	}
 
-	hal_gpio_clear(s->sck_gpio, s->sck_pin);
-	hal_gpio_set(s->nss_gpio, s->nss_pin);
+	hal_gpio_write(s->sck_gpio, s->sck_pin, 0);
+	hal_gpio_write(s->nss_gpio, s->nss_pin, 1);
 }
 
 void ssc_bb_deinit(spi_bb_state *s) {
-	chMtxObjectInit(&s->mutex);
+	const osMutexAttr_t attr = {.name = "spi_bb_lock"}; s->mutex = osMutexNew(&attr);
 
 	hal_gpio_init_input_pullup(s->mosi_gpio, s->miso_pin);
 	hal_gpio_init_input_pullup(s->sck_gpio, s->sck_pin);
@@ -94,7 +94,7 @@ void spi_bb_transfer_8(
 				send <<= 1;
 			}
 
-			hal_gpio_set(s->sck_gpio, s->sck_pin);
+			hal_gpio_write(s->sck_gpio, s->sck_pin, 1);
 			spi_bb_delay();
 
 			int samples = 0;
@@ -108,7 +108,7 @@ void spi_bb_transfer_8(
 			__NOP();
 			samples += hal_gpio_read(s->miso_gpio, s->miso_pin);
 
-			hal_gpio_clear(s->sck_gpio, s->sck_pin);
+			hal_gpio_write(s->sck_gpio, s->sck_pin, 0);
 
 			// does 5 samples of each pad read, to minimize noise
 			receive <<= 1;
@@ -141,7 +141,7 @@ void spi_bb_transfer_16(
 				send <<= 1;
 			}
 
-			hal_gpio_set(s->sck_gpio, s->sck_pin);
+			hal_gpio_write(s->sck_gpio, s->sck_pin, 1);
 			spi_bb_delay_short();
 
 			int samples = 0;
@@ -160,7 +160,7 @@ void spi_bb_transfer_16(
 				receive |= 1;
 			}
 
-			hal_gpio_clear(s->sck_gpio, s->sck_pin);
+			hal_gpio_write(s->sck_gpio, s->sck_pin, 0);
 			spi_bb_delay_short();
 		}
 
@@ -205,7 +205,7 @@ void ssc_bb_transfer_16(
 		for (int bit = 0; bit < 16; bit++) {
 			// Data is put on the data line with the rising edge of SCK
 			// and read with the falling edge of SCK. (tle5012)
-			hal_gpio_set(s->sck_gpio, s->sck_pin);
+			hal_gpio_write(s->sck_gpio, s->sck_pin, 1);
 
 			if(write){
 				hal_gpio_write(s->mosi_gpio, s->mosi_pin, send >> 15);
@@ -213,7 +213,7 @@ void ssc_bb_transfer_16(
 			}
 
 			spi_bb_delay_short();
-			hal_gpio_clear(s->sck_gpio, s->sck_pin);
+			hal_gpio_write(s->sck_gpio, s->sck_pin, 0);
 			spi_bb_delay_short();
 
 			// read when clk low
@@ -229,13 +229,13 @@ void ssc_bb_transfer_16(
 
 void spi_bb_begin(spi_bb_state *s) {
 	spi_bb_delay();
-	hal_gpio_clear(s->nss_gpio, s->nss_pin);
+	hal_gpio_write(s->nss_gpio, s->nss_pin, 0);
 	spi_bb_delay();
 }
 
 void spi_bb_end(spi_bb_state *s) {
 	spi_bb_delay();
-	hal_gpio_set(s->nss_gpio, s->nss_pin);
+	hal_gpio_write(s->nss_gpio, s->nss_pin, 1);
 	spi_bb_delay();
 }
 
@@ -258,3 +258,5 @@ bool spi_bb_check_parity(uint16_t x) {
 	x ^= x >> 1;
 	return (~x) & 1;
 }
+
+

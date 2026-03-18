@@ -6,11 +6,12 @@ description: |
   Handles: Software I2C/SPI, hardware SPI, CAN communication, USB-CDC serial, encoder position reading, IMU sensor drivers.
   Scope: Src/driver/, Src/encoder/, Src/imu/, Src/comm/, Src/libcanard/
 ---
-
 # Peripheral Drivers & Interfaces Conversion
 
 ## Mission
+
 Convert all peripheral driver interfaces from ChibiOS-dependent APIs to STM32 HAL while preserving:
+
 - **Timing guarantees**: I2C/SPI bit-bang frequencies unchanged
 - **Reliability**: Error handling and retry logic intact
 - **Communication protocols**: CAN, USB CDC remain compatible
@@ -21,7 +22,7 @@ Convert all peripheral driver interfaces from ChibiOS-dependent APIs to STM32 HA
 
 ## Architecture: Driver Categories
 
-```
+`
 Drivers/
 ├─ Bit-banged (GPIO timing-critical)
 │  ├─ I2C: i2c_bb.c  (400 kHz typical)
@@ -35,7 +36,7 @@ Drivers/
    ├─ Encoders: encoder/enc_*.c (multiple types)
    ├─ IMU: imu/imu.c (I2C/SPI)
    └─ Fault inputs: hwconf/board.c (GPIO ISR)
-```
+`
 
 ---
 
@@ -43,10 +44,11 @@ Drivers/
 
 ### 1.1 I2C Software Implementation (i2c_bb.c)
 
-**File**: `Src/driver/i2c_bb.c`
+**File**: Src/driver/i2c_bb.c
 
 **ChibiOS I2C structure**:
-```c
+
+`c
 // BEFORE (ChibiOS)
 #include "ch.h"
 #include "hal.h"
@@ -67,11 +69,11 @@ int i2c_bb_tx_rx(uint8_t addr, const uint8_t *tx, int tx_len,
         tx, tx_len, rx, rx_len, MS2ST(100));
     return status == MSG_OK ? 0 : -1;
 }
-```
+`
 
 **Converted to pure GPIO bit-bang** (no ChibiOS dependency):
 
-```c
+`c
 // Src/driver/i2c_bb.c (CONVERTED)
 
 #include "stm32f1xx_hal.h"
@@ -163,11 +165,11 @@ static void i2c_write_bit(bool bit) {
 static bool i2c_read_bit(void) {
     i2c_sda_high();
     i2c_scl_high();
-    
+  
     // Clock stretching
     uint32_t timeout = 100000;
     while (!i2c_scl_read() && --timeout);
-    
+  
     bool bit = i2c_sda_read();
     i2c_scl_low();
     return bit;
@@ -203,48 +205,48 @@ int i2c_bb_tx_rx(uint8_t addr, const uint8_t *tx, int tx_len,
     if (status != osOK) {
         return -1;  // Timeout
     }
-    
+  
     i2c_busy = true;
     int result = -1;
-    
+  
     // START condition
     i2c_start();
-    
+  
     // Write address byte (7-bit address + R/W bit)
     uint8_t addr_byte = (addr << 1) | (tx_len > 0 ? 0 : 1);  // W if TX, R if RX only
     if (!i2c_write_byte(addr_byte)) {
         goto exit;  // No ACK from slave
     }
-    
+  
     // Write TX data
     for (int i = 0; i < tx_len; i++) {
         if (!i2c_write_byte(tx[i])) {
             goto exit;
         }
     }
-    
+  
     // Repeated START if reading
     if (rx_len > 0) {
         i2c_start();
-        
+      
         // Re-send address with READ bit
         if (!i2c_write_byte((addr << 1) | 1)) {
             goto exit;
         }
-        
+      
         // Read RX data
         for (int i = 0; i < rx_len; i++) {
             rx[i] = i2c_read_byte(i < (rx_len - 1));  // ACK all but last byte
         }
     }
-    
+  
     result = 0;  // Success
-    
+  
 exit:
     i2c_stop();
     i2c_busy = false;
     osMutexRelease(i2c_mutex);
-    
+  
     return result;
 }
 
@@ -259,11 +261,12 @@ int i2c_bb_write_reg(uint8_t addr, uint8_t reg, const uint8_t *data, int len) {
     memcpy(&tx_buf[1], data, len);
     return i2c_bb_tx_rx(addr, tx_buf, len + 1, NULL, 0);
 }
-```
+`
 
 **Key points**:
+
 - Mutex protects against concurrent access (from different threads)
-- GPIO reads/writes via `hal_gpio_*` layer (no direct register access)
+- GPIO reads/writes via hal_gpio_* layer (no direct register access)
 - No ChibiOS dependency; works with FreeRTOS
 - Clock stretching support (slave holds SCL low)
 - Timing achieved via software delay loop (portable, not cycle-accurate)
@@ -276,10 +279,11 @@ int i2c_bb_write_reg(uint8_t addr, uint8_t reg, const uint8_t *data, int len) {
 
 **Used for**: Gate driver programming (DRV8301, DRV8305, etc.), high-speed peripherals
 
-**File**: `Src/hwconf/mcuconf.c` or `Src/driver/spi_hw.c`
+**File**: Src/hwconf/mcuconf.c or Src/driver/spi_hw.c
 
 **Before (ChibiOS)**:
-```c
+
+`c
 // BEFORE: ChibiOS SPI
 static const SPIConfig spi_config = {
     .end_cb = NULL,
@@ -296,11 +300,11 @@ void spi_init(void) {
 void spi_write_read(const uint8_t *tx, uint8_t *rx, int len) {
     spiExchange(&SPID1, len, tx, rx);
 }
-```
+`
 
 **Converted to STM32 HAL**:
 
-```c
+`c
 // Src/driver/spi_hw.c
 
 #include "stm32f1xx_hal.h"
@@ -311,7 +315,7 @@ SPI_HandleTypeDef hspi1;
 void spi_hw_init(void) {
     // Enable SPI1 clock
     __HAL_RCC_SPI1_CLK_ENABLE();
-    
+  
     // SPI configuration
     hspi1.Instance = SPI1;
     hspi1.Init.Mode = SPI_MODE_MASTER;
@@ -324,21 +328,21 @@ void spi_hw_init(void) {
     hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
     hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
     hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-    
+  
     HAL_SPI_Init(&hspi1);
 }
 
 void spi_hw_write_read(const uint8_t *tx, uint8_t *rx, int len) {
     // Pull CS low
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-    
+  
     // SPI transaction
     HAL_SPI_TransmitReceive(&hspi1, (uint8_t *)tx, rx, len, 1000);
-    
+  
     // Pull CS high
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
 }
-```
+`
 
 ---
 
@@ -346,10 +350,11 @@ void spi_hw_write_read(const uint8_t *tx, uint8_t *rx, int len) {
 
 ### 3.1 Hardware CAN Driver (comm_can.c)
 
-**File**: `Src/comm/comm_can.c` - Update CAN RX/TX handlers
+**File**: Src/comm/comm_can.c - Update CAN RX/TX handlers
 
 **Before (ChibiOS CAND1 driver)**:
-```c
+
+`c
 // BEFORE: ChibiOS CAN
 static const CANConfig can_config = {
     .mcr = (1 << 6),  // ABOM: auto bus-off management
@@ -369,11 +374,11 @@ void can_send(uint16_t id, const uint8_t *data, int len) {
     memcpy(frame.data8, data, len);
     canTransmit(&CAND1, CAN_ANY_MAILBOX, &frame);
 }
-```
+`
 
 **Converted to STM32 HAL**:
 
-```c
+`c
 // Src/comm/comm_can.c (UPDATED)
 
 #include "stm32f1xx_hal.h"
@@ -385,7 +390,7 @@ CAN_HandleTypeDef hcan2;  // Motor 2 CAN bus (if available)
 void comm_can_init(void) {
     // Configure CAN1 for 1 Mbps operation
     __HAL_RCC_CAN1_CLK_ENABLE();
-    
+  
     hcan1.Instance = CAN1;
     hcan1.Init.Mode = CAN_MODE_NORMAL;
     hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
@@ -394,7 +399,7 @@ void comm_can_init(void) {
     hcan1.Init.AutoRetransmission = ENABLE;
     hcan1.Init.ReceiveFifoLocked = DISABLE;
     hcan1.Init.TimeTriggeredMode = DISABLE;
-    
+  
     // 1 Mbps CAN at 72 MHz:
     // Prescaler=4, BS1=13, BS2=2, SJW=1
     // Bit time = (1+13+2) = 16 TQ @ 18 MHz = 1.125 Mbps (close enough)
@@ -402,11 +407,11 @@ void comm_can_init(void) {
     hcan1.Init.Prescaler = 9;
     hcan1.Init.TimeSeg1 = CAN_BS1_6TQ;
     hcan1.Init.TimeSeg2 = CAN_BS2_1TQ;
-    
+  
     if (HAL_CAN_Init(&hcan1) != HAL_OK) {
         Error_Handler();
     }
-    
+  
     // Start CAN with RX interrupt
     HAL_CAN_Start(&hcan1);
     HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
@@ -419,7 +424,7 @@ void comm_can_send(uint16_t id, const uint8_t *data, int len) {
         .RTR = CAN_RTR_DATA,
         .DLC = (len > 8) ? 8 : len
     };
-    
+  
     uint32_t TxMailbox;
     HAL_CAN_AddTxMessage(&hcan1, &TxHeader, (uint8_t *)data, &TxMailbox);
 }
@@ -429,14 +434,14 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     if (hcan->Instance == CAN1) {
         CAN_RxHeaderTypeDef RxHeader = {0};
         uint8_t RxData[8];
-        
+      
         if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
             // Dispatch to COBS packet handler or libcanard
             comm_can_process_message(&RxHeader, RxData);
         }
     }
 }
-```
+`
 
 ---
 
@@ -444,11 +449,11 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
 
 **Purpose**: Terminal interface for VESC tool communication
 
-**File**: `Src/comm/comm_usb_serial.c`
+**File**: Src/comm/comm_usb_serial.c
 
 **HAL USB CDC stack**:
 
-```c
+`c
 // Src/comm/comm_usb_serial.c
 
 #include "stm32f1xx_hal.h"
@@ -465,12 +470,12 @@ void comm_usb_init(void) {
     if (USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS) != USBD_OK) {
         Error_Handler();
     }
-    
+  
     // Set USB device class (CDC)
     if (USBD_RegisterClass(&hUsbDeviceFS, &USBD_CDC) != USBD_OK) {
         Error_Handler();
     }
-    
+  
     // Start USB device
     if (USBD_Start(&hUsbDeviceFS) != USBD_OK) {
         Error_Handler();
@@ -492,7 +497,7 @@ void CDC_Receive_FS(uint8_t *Buf, uint32_t Len) {
     osEventFlagsSet(usb_rx_events, USB_DATA_AVAILABLE);
     memcpy(usb_rx_buffer, Buf, Len);
 }
-```
+`
 
 ---
 
@@ -500,9 +505,9 @@ void CDC_Receive_FS(uint8_t *Buf, uint32_t Len) {
 
 ### 5.1 Generic Encoder Interface
 
-**File**: `Src/encoder/encoder.c` - Common interface
+**File**: Src/encoder/encoder.c - Common interface
 
-```c
+`c
 // Src/encoder/encoder.c - Updated for FreeRTOS
 
 #include "stm32f1xx_hal.h"
@@ -522,7 +527,7 @@ void encoder_init(void) {
         .name = "encoder_lock"
     };
     encoder_lock = osMutexNew(&attr);
-    
+  
     // Initialize specific encoder type based on config
     switch (ENCODER_TYPE) {
         case ENC_TYPE_ABI:
@@ -554,30 +559,30 @@ void encoder_set_position(float pos) {
 // Thread entry point
 void *encoder_thread(void *arg) {
     osThreadSetName(osThreadGetId(), "encoder");
-    
+  
     while (1) {
         // Read encoder in non-blocking way
         float new_pos = get_encoder_position_native();
         float new_vel = get_encoder_velocity_native();
-        
+      
         osMutexAcquire(encoder_lock, osWaitForever);
         encoder_position = new_pos;
         encoder_velocity = new_vel;
         osMutexRelease(encoder_lock);
-        
+      
         // Update rate depends on encoder type (100-10000 Hz)
         osDelay(pdMS_TO_TICKS(10));  // 100 Hz encoder poll
     }
-    
+  
     return NULL;
 }
-```
+`
 
 ### 5.2 Specific Encoder: AS504x (SPI)
 
-**File**: `Src/encoder/enc_as504x.c` - SPI magnetic encoder
+**File**: Src/encoder/enc_as504x.c - SPI magnetic encoder
 
-```c
+`c
 // Src/encoder/enc_as504x.c
 
 #include "stm32f1xx_hal.h"
@@ -601,29 +606,29 @@ void enc_as504x_init(void) {
 float enc_as504x_read_position(void) {
     uint8_t cmd_buf[2] = {0x3F, 0x00};  // Read angle register
     uint8_t rx_buf[2];
-    
+  
     // Pull CS low
     HAL_GPIO_WritePin(as504x_m1.cs_port, as504x_m1.cs_pin, GPIO_PIN_RESET);
-    
+  
     // SPI transfer
     HAL_SPI_TransmitReceive(as504x_m1.spi, cmd_buf, rx_buf, 2, 100);
-    
+  
     // Pull CS high
     HAL_GPIO_WritePin(as504x_m1.cs_port, as504x_m1.cs_pin, GPIO_PIN_SET);
-    
+  
     // Extract 14-bit angle from response
     uint16_t raw = ((rx_buf[0] << 8) | rx_buf[1]) & 0x3FFF;
-    
+  
     // Convert to electrical angle [0, 2π)
     return (raw / 16384.0) * 2 * M_PI;
 }
-```
+`
 
 ### 5.3 Encoder Type: Hall Sensor (GPIO)
 
-**File**: `Src/encoder/enc_abi.c` - Incremental hall sensors
+**File**: Src/encoder/enc_abi.c - Incremental hall sensors
 
-```c
+`c
 // Src/encoder/enc_abi.c - Hall sensors (A, B, Index)
 
 #include "stm32f1xx_hal.h"
@@ -636,28 +641,28 @@ static osMutexId_t hall_lock;
 void enc_abi_init(void) {
     const osMutexAttr_t attr = {.name = "hall_lock"};
     hall_lock = osMutexNew(&attr);
-    
+  
     // Configure GPIO inputs for hall sensors
     hal_gpio_init(&hall_m1_a, GPIO_MODE_INPUT, GPIO_PULLUP);
     hal_gpio_init(&hall_m1_b, GPIO_MODE_INPUT, GPIO_PULLUP);
     hal_gpio_init(&hall_m1_index, GPIO_MODE_INPUT, GPIO_PULLUP);
-    
+  
     // Optional: Use TIM4 input capture for precise counting
     // TIM4_CH1 ← Hall A
     // TIM4_CH2 ← Hall B
     // TIM4_CH3 ← Index (optional reset)
-    
+  
     // For simplicity, poll GPIO in encoder_thread()
 }
 
 void enc_abi_update(void) {
     static uint8_t last_state = 0;
     uint8_t current = 0;
-    
+  
     // Read current hall state
     current |= (hal_gpio_read(&hall_m1_a) << 0);
     current |= (hal_gpio_read(&hall_m1_b) << 1);
-    
+  
     // Detect state transition (simple incremental)
     if (current != last_state) {
         // Simple increment/decrement based on transition
@@ -670,7 +675,7 @@ void enc_abi_update(void) {
                 }
             }
         }
-        
+      
         last_state = current;
     }
 }
@@ -681,15 +686,15 @@ float enc_abi_get_position(void) {
     osMutexRelease(hall_lock);
     return pos;
 }
-```
+`
 
 ---
 
 ## Phase 6: IMU Sensor Driver
 
-**File**: `Src/imu/imu.c` - 6-axis IMU (accelerometer + gyroscope)
+**File**: Src/imu/imu.c - 6-axis IMU (accelerometer + gyroscope)
 
-```c
+`c
 // Src/imu/imu.c
 
 #include "stm32f1xx_hal.h"
@@ -710,12 +715,12 @@ static osMutexId_t imu_lock;
 void imu_init(void) {
     const osMutexAttr_t attr = {.name = "imu_lock"};
     imu_lock = osMutexNew(&attr);
-    
+  
     // I2C already initialized in Agent 1
     // Configure IMU over I2C
     uint8_t config[2] = {0x1A, 0x06};  // DLPF config
     i2c_bb_write_reg(IMU_ADDR, 0x1A, &config[1], 1);
-    
+  
     // Power on, set sample rate
     uint8_t pwr = 0x01;
     i2c_bb_write_reg(IMU_ADDR, 0x6B, &pwr, 1);
@@ -723,9 +728,9 @@ void imu_init(void) {
 
 void *imu_thread(void *arg) {
     osThreadSetName(osThreadGetId(), "imu");
-    
+  
     uint8_t imu_regs[6];
-    
+  
     while (1) {
         // Read accelerometer and gyroscope registers @ 100 Hz
         if (i2c_bb_read_reg(IMU_ADDR, 0x3B, imu_regs, 6) == 0) {
@@ -733,7 +738,7 @@ void *imu_thread(void *arg) {
             int16_t accel_raw_x = (imu_regs[0] << 8) | imu_regs[1];
             int16_t accel_raw_y = (imu_regs[2] << 8) | imu_regs[3];
             int16_t accel_raw_z = (imu_regs[4] << 8) | imu_regs[5];
-            
+          
             // Convert to physical units (±16g range)
             osMutexAcquire(imu_lock, osWaitForever);
             imu_data.accel_x = accel_raw_x / 2048.0 * 9.81;
@@ -741,10 +746,10 @@ void *imu_thread(void *arg) {
             imu_data.accel_z = accel_raw_z / 2048.0 * 9.81;
             osMutexRelease(imu_lock);
         }
-        
+      
         osDelay(pdMS_TO_TICKS(10));  // 100 Hz poll
     }
-    
+  
     return NULL;
 }
 
@@ -755,7 +760,7 @@ void imu_get_accel(float *ax, float *ay, float *az) {
     *az = imu_data.accel_z;
     osMutexRelease(imu_lock);
 }
-```
+`
 
 ---
 
@@ -763,9 +768,9 @@ void imu_get_accel(float *ax, float *ay, float *az) {
 
 **If using UAVCAN protocol** for advanced motor control:
 
-**File**: `Src/libcanard/canard_hal.c`
+**File**: Src/libcanard/canard_hal.c
 
-```c
+`c
 // Src/libcanard/canard_hal.c - Bridge libcanard to HAL CAN
 
 #include "libcanard/canard.h"
@@ -782,7 +787,7 @@ int16_t canardHalTxWrite(CanardCANFrame *frame) {
         .RTR = CAN_RTR_DATA,
         .DLC = frame->dlc
     };
-    
+  
     uint32_t mailbox;
     return HAL_CAN_AddTxMessage(&hcan1, &hdr, frame->data, &mailbox) == HAL_OK ? 0 : -1;
 }
@@ -790,14 +795,14 @@ int16_t canardHalTxWrite(CanardCANFrame *frame) {
 void canardHalRxPoll(CanardCANFrame *frame) {
     CAN_RxHeaderTypeDef hdr;
     uint8_t data[8];
-    
+  
     if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &hdr, data) == HAL_OK) {
         frame->id = hdr.StdId << 26;
         frame->dlc = hdr.DLC;
         memcpy(frame->data, data, frame->dlc);
     }
 }
-```
+`
 
 ---
 
@@ -805,14 +810,14 @@ void canardHalRxPoll(CanardCANFrame *frame) {
 
 ### 8.1 Driver Functional Tests
 
-```c
+`c
 // Src/tests/test_drivers.c
 
 void test_i2c_read_write(void) {
     // Read/write test to any I2C device (e.g., encoder)
     uint8_t test_data[4] = {0xAA, 0xBB, 0xCC, 0xDD};
     uint8_t read_data[4];
-    
+  
     if (i2c_bb_write_reg(0x50, 0x00, test_data, 4) == 0) {
         printf("✓ I2C write OK\n");
     } else {
@@ -823,7 +828,7 @@ void test_i2c_read_write(void) {
 void test_spi_write_read(void) {
     uint8_t tx[] = {0xFF, 0x00};
     uint8_t rx[2];
-    
+  
     spi_hw_write_read(tx, rx, 2);
     printf("SPI TX: %02X %02X | RX: %02X %02X\n", 
         tx[0], tx[1], rx[0], rx[1]);
@@ -845,7 +850,7 @@ void test_encoder(void) {
     float pos = encoder_get_position();
     printf("Encoder position: %.3f rad\n", pos);
 }
-```
+`
 
 ### 8.2 Checklist for Completion
 
@@ -864,17 +869,17 @@ void test_encoder(void) {
 
 ## Key Files to Create/Modify
 
-| File | Action | Purpose | Priority |
-|------|--------|---------|----------|
-| `Src/driver/i2c_bb.c` | **MODIFY** | Pure GPIO I2C bit-bang | **CRITICAL** |
-| `Src/driver/spi_hw.c` | **CREATE** | Hardware SPI abstraction | **HIGH** |
-| `Src/comm/comm_can.c` | **MODIFY** | STM32 HAL CAN interface | **CRITICAL** |
-| `Src/comm/comm_usb_serial.c` | **MODIFY** | HAL USB CDC stack | **HIGH** |
-| `Src/encoder/encoder.c` | **MODIFY** | Encoder thread + APIs | **HIGH** |
-| `Src/encoder/enc_as504x.c` | **MODIFY** | SPI encoder reader | **MEDIUM** |
-| `Src/encoder/enc_abi.c` | **MODIFY** | Hall/ABI encoder GPIO | **MEDIUM** |
-| `Src/imu/imu.c` | **MODIFY** | I2C IMU sensor reader | **MEDIUM** |
-| `Src/libcanard/canard_hal.c` | **CREATE** | UAVCAN bridge (optional) | **LOW** |
+| File                           | Action           | Purpose                  | Priority           |
+| ------------------------------ | ---------------- | ------------------------ | ------------------ |
+| Src/driver/i2c_bb.c        | **MODIFY** | Pure GPIO I2C bit-bang   | **CRITICAL** |
+| Src/driver/spi_hw.c        | **CREATE** | Hardware SPI abstraction | **HIGH**     |
+| Src/comm/comm_can.c        | **MODIFY** | STM32 HAL CAN interface  | **CRITICAL** |
+| Src/comm/comm_usb_serial.c | **MODIFY** | HAL USB CDC stack        | **HIGH**     |
+| Src/encoder/encoder.c      | **MODIFY** | Encoder thread + APIs    | **HIGH**     |
+| Src/encoder/enc_as504x.c   | **MODIFY** | SPI encoder reader       | **MEDIUM**   |
+| Src/encoder/enc_abi.c      | **MODIFY** | Hall/ABI encoder GPIO    | **MEDIUM**   |
+| Src/imu/imu.c              | **MODIFY** | I2C IMU sensor reader    | **MEDIUM**   |
+| Src/libcanard/canard_hal.c | **CREATE** | UAVCAN bridge (optional) | **LOW**      |
 
 ---
 
@@ -900,4 +905,3 @@ void test_encoder(void) {
 - **USB stack**: Uses STM32CubeMX-generated USB code; may differ from your exact setup
 - **Encoder types**: Multiple enc_*.c files (AS504x, TS5700, ABI, etc.) - only convert the types you use
 - **Clock stretching**: Implemented in i2c_bb.c to handle slow I2C slaves
-
