@@ -1249,7 +1249,7 @@ CANRxFrame *comm_can_get_rx_frame(int interface) {
 	CANRxFrame *res = NULL;
 
 #if CAN_ENABLE
-	osMutexAcquire(&can_rx_mtx);
+	osMutexAcquire(can_rx_mtx, osWaitForever);
 	if (!res && interface != 2) {
 		if (m_rx_state.frame_read != m_rx_state.frame_write) {
 			res = &m_rx_state.rx_frames[m_rx_state.frame_read++];

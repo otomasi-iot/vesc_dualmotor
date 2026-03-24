@@ -24,16 +24,14 @@
 #include "mcpwm.h"
 #include "mcpwm_foc.h"
 #include "ledpwm.h"
-#include "stm32f4xx_conf.h"
-#include "hw.h"
 #include "terminal.h"
 #include "utils_math.h"
 #include "utils_sys.h"
 #include "ch.h"
 #include "hal.h"
-#include "hwconf/hal_gpio.h"
-#include "commands.h"
-#include "encoder/encoder.h"
+#include "stm32f1xx_hal.h"
+// Direct F1 HAL - no compat layer
+#include "hw_config.h"
 #include "buffer.h"
 #include "comm_can.h"
 #include "shutdown.h"
@@ -47,6 +45,17 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+
+// Forward declarations for functions defined in app_stubs.c
+extern void encoder_init(mc_configuration *conf);
+extern void encoder_deinit(void);
+extern void encoder_update_config(mc_configuration *conf);
+extern bool encoder_check_faults(mc_configuration *conf, bool is_second_motor);
+extern bool encoder_is_configured(void);
+extern float encoder_read_deg(void);
+extern bool encoder_index_found(void);
+// utils_sys functions and UTILS_AGE_S macro provided by utils_sys.h (included via conf_general.h)
+extern void hw_setup_adc_channels(void);
 
 // Macros
 #define DIR_MULT		(motor_now()->m_conf.m_invert_direction ? -1.0 : 1.0)
@@ -105,19 +114,19 @@ static volatile motor_if_state_t m_motor_2;
 
 // Sampling variables
 #ifndef ADC_SAMPLE_MAX_LEN
-#define ADC_SAMPLE_MAX_LEN		1000 // 20 byte per sample
+#define ADC_SAMPLE_MAX_LEN		350 // Sized for F103 48KB RAM with all VESC apps enabled
 #endif
-__attribute__((section(".ram4"))) static volatile int16_t m_curr0_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile int16_t m_curr1_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile int16_t m_curr2_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile int16_t m_ph1_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile int16_t m_ph2_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile int16_t m_ph3_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile int16_t m_vzero_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile uint8_t m_status_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile int16_t m_curr_fir_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile int16_t m_f_sw_samples[ADC_SAMPLE_MAX_LEN];
-__attribute__((section(".ram4"))) static volatile int8_t m_phase_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int16_t m_curr0_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int16_t m_curr1_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int16_t m_curr2_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int16_t m_ph1_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int16_t m_ph2_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int16_t m_ph3_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int16_t m_vzero_samples[ADC_SAMPLE_MAX_LEN];
+static volatile uint8_t m_status_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int16_t m_curr_fir_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int16_t m_f_sw_samples[ADC_SAMPLE_MAX_LEN];
+static volatile int8_t m_phase_samples[ADC_SAMPLE_MAX_LEN];
 
 static volatile int m_sample_len;
 static volatile int m_sample_int;
@@ -154,24 +163,17 @@ static void send_sample_block(int ind, int offset);
 static void(*pwn_done_func)(void) = 0;
 static void(* volatile send_func_sample)(unsigned char *data, unsigned int len) = 0;
 
-// Threads — CMSIS-RTOS2 / FreeRTOS static allocation
+// Threads
+static THD_WORKING_AREA(timer_thread_wa, 512);
 static THD_FUNCTION(timer_thread, arg);
-static StaticTask_t timer_thread_tcb;
-static StackType_t timer_thread_stack[512];
-
+static THD_WORKING_AREA(sample_send_thread_wa, 512);
 static THD_FUNCTION(sample_send_thread, arg);
-static StaticTask_t sample_send_thread_tcb;
-static StackType_t sample_send_thread_stack[512];
-static TaskHandle_t sample_send_tp;
-
+static thread_t sample_send_tp;
+static THD_WORKING_AREA(fault_stop_thread_wa, 512);
 static THD_FUNCTION(fault_stop_thread, arg);
-static StaticTask_t fault_stop_thread_tcb;
-static StackType_t fault_stop_thread_stack[512];
-static TaskHandle_t fault_stop_tp;
-
+static thread_t fault_stop_tp;
+static THD_WORKING_AREA(stat_thread_wa, 512);
 static THD_FUNCTION(stat_thread, arg);
-static StaticTask_t stat_thread_tcb;
-static StackType_t stat_thread_stack[512];
 
 void mc_interface_init(void) {
 	memset((void*)&m_motor_1, 0, sizeof(motor_if_state_t));
@@ -203,45 +205,10 @@ void mc_interface_init(void) {
 	mc_interface_stat_reset();
 
 	// Start threads
-	osThreadNew((osThreadFunc_t)timer_thread, NULL,
-		&(const osThreadAttr_t){
-			.name = "mc_timer",
-			.priority = osPriorityNormal,
-			.stack_mem = timer_thread_stack,
-			.stack_size = sizeof(timer_thread_stack),
-			.cb_mem = &timer_thread_tcb,
-			.cb_size = sizeof(timer_thread_tcb)
-		});
-
-	osThreadNew((osThreadFunc_t)sample_send_thread, NULL,
-		&(const osThreadAttr_t){
-			.name = "mc_sample",
-			.priority = osPriorityBelowNormal,
-			.stack_mem = sample_send_thread_stack,
-			.stack_size = sizeof(sample_send_thread_stack),
-			.cb_mem = &sample_send_thread_tcb,
-			.cb_size = sizeof(sample_send_thread_tcb)
-		});
-
-	osThreadNew((osThreadFunc_t)fault_stop_thread, NULL,
-		&(const osThreadAttr_t){
-			.name = "mc_fault",
-			.priority = osPriorityAboveNormal,
-			.stack_mem = fault_stop_thread_stack,
-			.stack_size = sizeof(fault_stop_thread_stack),
-			.cb_mem = &fault_stop_thread_tcb,
-			.cb_size = sizeof(fault_stop_thread_tcb)
-		});
-
-	osThreadNew((osThreadFunc_t)stat_thread, NULL,
-		&(const osThreadAttr_t){
-			.name = "mc_stat",
-			.priority = osPriorityNormal,
-			.stack_mem = stat_thread_stack,
-			.stack_size = sizeof(stat_thread_stack),
-			.cb_mem = &stat_thread_tcb,
-			.cb_size = sizeof(stat_thread_tcb)
-		});
+	chThdCreateStatic(timer_thread_wa, sizeof(timer_thread_wa), NORMALPRIO, timer_thread, NULL);
+	chThdCreateStatic(sample_send_thread_wa, sizeof(sample_send_thread_wa), NORMALPRIO - 1, sample_send_thread, NULL);
+	chThdCreateStatic(fault_stop_thread_wa, sizeof(fault_stop_thread_wa), HIGHPRIO - 3, fault_stop_thread, NULL);
+	chThdCreateStatic(stat_thread_wa, sizeof(stat_thread_wa), NORMALPRIO, stat_thread, NULL);
 
 	int motor_old = mc_interface_get_motor_thread();
 	mc_interface_select_motor_thread(1);
@@ -273,7 +240,7 @@ void mc_interface_init(void) {
 #endif
 	mc_interface_select_motor_thread(motor_old);
 
-	encoder_init(&motor_now()->m_conf);
+	encoder_init((mc_configuration*)&motor_now()->m_conf);
 
 	// Initialize selected implementation
 	switch (motor_now()->m_conf.motor_type) {
@@ -1542,7 +1509,7 @@ void mc_interface_sample_print_data(debug_sampling_mode mode, uint16_t len, uint
 	}
 
 	if (mode == DEBUG_SAMPLING_SEND_LAST_SAMPLES) {
-		xTaskNotifyGive(sample_send_tp);
+		chEvtSignal(sample_send_tp, (eventmask_t) 1);
 	} else if (mode == DEBUG_SAMPLING_SEND_SINGLE_SAMPLE) {
 		send_sample_block(len, m_sample_offset_last);
 	} else {
@@ -1891,11 +1858,11 @@ void mc_interface_fault_stop(mc_fault_code fault, bool is_second_motor, bool is_
 	m_fault_data.is_second_motor = is_second_motor;
 
 	if (is_isr) {
-		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-		vTaskNotifyGiveFromISR(fault_stop_tp, &xHigherPriorityTaskWoken);
-		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+		chSysLockFromISR();
+		chEvtSignalI(fault_stop_tp, (eventmask_t) 1);
+		chSysUnlockFromISR();
 	} else {
-		xTaskNotifyGive(fault_stop_tp);
+		chEvtSignal(fault_stop_tp, (eventmask_t) 1);
 	}
 }
 
@@ -2033,8 +2000,8 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 	if (TIM_GetFlagStatus(TIM1, TIM_FLAG_Break) != RESET) {
 		mc_interface_fault_stop(FAULT_CODE_BRK, is_second_motor, true);
 		// latch the BRK/FAULT pin to low until next MCU reset
-		hal_gpio_init_output(BRK_GPIO, BRK_PIN);
-		hal_gpio_clear(BRK_GPIO, BRK_PIN);
+		palSetPadMode(BRK_GPIO, BRK_PIN, PAL_MODE_OUTPUT_PUSHPULL);
+		palClearPad(BRK_GPIO, BRK_PIN);
 	}
 #endif
 
@@ -2077,11 +2044,9 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 		if (m_sample_now == m_sample_len) {
 			m_sample_mode = DEBUG_SAMPLING_OFF;
 			m_sample_mode_last = DEBUG_SAMPLING_NOW;
-			{
-				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-				vTaskNotifyGiveFromISR(sample_send_tp, &xHigherPriorityTaskWoken);
-				portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-			}
+			chSysLockFromISR();
+			chEvtSignalI(sample_send_tp, (eventmask_t) 1);
+			chSysUnlockFromISR();
 		} else {
 			sample = true;
 		}
@@ -2095,11 +2060,9 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 		if (m_sample_now == m_sample_len) {
 			m_sample_mode_last = m_sample_mode;
 			m_sample_mode = DEBUG_SAMPLING_OFF;
-			{
-				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-				vTaskNotifyGiveFromISR(sample_send_tp, &xHigherPriorityTaskWoken);
-				portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-			}
+			chSysLockFromISR();
+			chEvtSignalI(sample_send_tp, (eventmask_t) 1);
+			chSysUnlockFromISR();
 		}
 		break;
 
@@ -2120,11 +2083,9 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 			sample = false;
 
 			if (m_sample_mode == DEBUG_SAMPLING_TRIGGER_START) {
-				{
-					BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-					vTaskNotifyGiveFromISR(sample_send_tp, &xHigherPriorityTaskWoken);
-					portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-				}
+				chSysLockFromISR();
+				chEvtSignalI(sample_send_tp, (eventmask_t) 1);
+				chSysUnlockFromISR();
 			}
 
 			m_sample_mode = DEBUG_SAMPLING_OFF;
@@ -2152,11 +2113,9 @@ void mc_interface_mc_timer_isr(bool is_second_motor, float dt) {
 			sample = false;
 
 			if (m_sample_mode == DEBUG_SAMPLING_TRIGGER_FAULT) {
-				{
-					BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-					vTaskNotifyGiveFromISR(sample_send_tp, &xHigherPriorityTaskWoken);
-					portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-				}
+				chSysLockFromISR();
+				chEvtSignalI(sample_send_tp, (eventmask_t) 1);
+				chSysUnlockFromISR();
 			}
 
 			m_sample_mode = DEBUG_SAMPLING_OFF;
@@ -2691,7 +2650,7 @@ static void run_timer_tasks(volatile motor_if_state_t *motor) {
 		}
 	}
 
-	encoder_check_faults(&motor->m_conf, !is_motor_1);
+	encoder_check_faults((mc_configuration*)&motor->m_conf, !is_motor_1);
 
 	bool dc_cal_done = mc_interface_dccal_done();
 	// TODO: Implement for BLDC and GPDRIVE
@@ -2760,6 +2719,8 @@ static THD_FUNCTION(timer_thread, arg) {
 
 		chThdSleepMilliseconds(1);
 	}
+
+	return NULL;
 }
 
 static void update_stats(volatile motor_if_state_t *motor) {
@@ -2875,6 +2836,8 @@ static THD_FUNCTION(stat_thread, arg) {
 
 		chThdSleepMilliseconds(10);
 	}
+
+	return NULL;
 }
 
 static void send_sample_block(int ind, int offset) {
@@ -2926,10 +2889,10 @@ static THD_FUNCTION(sample_send_thread, arg) {
 	(void)arg;
 
 	chRegSetThreadName("SampleSender");
-	sample_send_tp = xTaskGetCurrentTaskHandle();
+	sample_send_tp = chThdGetSelfX()->handle;
 
 	for(;;) {
-		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+		chEvtWaitAny((eventmask_t) 1);
 
 		int len = 0;
 		int offset = 0;
@@ -2958,16 +2921,18 @@ static THD_FUNCTION(sample_send_thread, arg) {
 			send_sample_block(i, offset);
 		}
 	}
+
+	return NULL;
 }
 
 static THD_FUNCTION(fault_stop_thread, arg) {
 	(void)arg;
 
 	chRegSetThreadName("Fault Stop");
-	fault_stop_tp = xTaskGetCurrentTaskHandle();
+	fault_stop_tp = chThdGetSelfX()->handle;
 
 	for(;;) {
-		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+		chEvtWaitAny((eventmask_t) 1);
 
 		fault_data_local fault_data_copy = m_fault_data;
 
@@ -3054,6 +3019,8 @@ static THD_FUNCTION(fault_stop_thread, arg) {
 
 		motor->m_fault_now = fault_data_copy.fault_code;
 	}
+
+	return NULL;
 }
 
 /**

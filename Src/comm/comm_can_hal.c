@@ -178,12 +178,14 @@ process_frame:
 	frame->IDE = rx_header.IDE;
 	frame->RTR = rx_header.RTR;
 	frame->DLC = rx_header.DLC;
-	frame->timestamp = 0;  // TODO: Add HAL timestamp support if available
+	frame->FMI = 0;  // Filter Match Index (not used)
 
 	if (rx_header.IDE == CAN_ID_EXT) {
-		frame->id = rx_header.ExtId;
+		frame->EID = rx_header.ExtId;
+		frame->SID = 0;
 	} else {
-		frame->id = rx_header.StdId;
+		frame->SID = rx_header.StdId;
+		frame->EID = 0;
 	}
 
 	// Copy data

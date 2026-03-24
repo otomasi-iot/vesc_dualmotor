@@ -23,12 +23,13 @@ typedef struct {
 
 // RX Frame Structure (compatible with ChibiOS CANRxFrame)
 typedef struct {
-	uint32_t id;           // Standard or Extended ID
+	uint32_t SID;          // Standard ID (11-bit)
+	uint32_t EID;          // Extended ID (29-bit)
 	uint8_t IDE;           // CAN_ID_STD or CAN_ID_EXT
 	uint8_t RTR;           // CAN_RTR_DATA or CAN_RTR_REMOTE
 	uint8_t DLC;           // Data Length Code (0-8)
 	uint8_t data8[8];      // Data bytes
-	uint32_t timestamp;    // RX timestamp
+	uint32_t FMI;          // Filter Match Index
 } CANRxFrame;
 
 // TX Frame Structure (compatible with ChibiOS CANTxFrame)
@@ -48,6 +49,9 @@ typedef struct {
 } CANConfig;
 
 // CAN Return Values (compatible with msg_t)
+#undef MSG_OK
+#undef MSG_TIMEOUT
+#undef MSG_RESET
 #define MSG_OK        0
 #define MSG_TIMEOUT   -1
 #define MSG_RESET     -2
@@ -56,6 +60,8 @@ typedef struct {
 #define CAN_ANY_MAILBOX 0xFF
 
 // CAN RTR Flags
+#undef CAN_RTR_DATA
+#undef CAN_RTR_REMOTE
 #define CAN_RTR_DATA   0
 #define CAN_RTR_REMOTE 1
 
@@ -64,11 +70,19 @@ typedef struct {
 #define CAN_IDE_EXT 1
 
 // CAN Constants
+#undef CAN_MCR_ABOM
+#undef CAN_MCR_AWUM
+#undef CAN_MCR_TXFP
 #define CAN_MCR_ABOM  (1 << 0)  // Automatic Bus-Off Management
 #define CAN_MCR_AWUM  (1 << 1)  // Automatic Wake-Up Mode
 #define CAN_MCR_TXFP  (1 << 2)  // Transmit FIFO Priority
 
 // BTR Field Helpers (for 500 kBaud @ 72 MHz)
+// Guard against redefinition from STM32 CMSIS headers
+#undef CAN_BTR_SJW
+#undef CAN_BTR_TS2
+#undef CAN_BTR_TS1
+#undef CAN_BTR_BRP
 #define CAN_BTR_SJW(x)   ((x & 3) << 24)   // Synchronization Jump Width
 #define CAN_BTR_TS2(x)   ((x & 7) << 20)   // Time Segment 2
 #define CAN_BTR_TS1(x)   ((x & 15) << 16)  // Time Segment 1

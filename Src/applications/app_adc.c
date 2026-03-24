@@ -20,18 +20,17 @@
 #pragma GCC optimize ("Os")
 
 #include "app.h"
-
-#include "ch.h"
-#include "hal.h"
-#include "stm32f4xx_conf.h"
+#include "stm32f1xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include "mc_interface.h"
 #include "timeout.h"
 #include "utils_math.h"
 #include "utils_sys.h"
 #include "comm_can.h"
 #include "hw.h"
-#include <math.h>
 #include "hwconf/hal_gpio.h"
+#include <math.h>
 
 // Settings
 #define MAX_CAN_AGE						0.1
@@ -647,6 +646,7 @@ static void *adc_thread(void *arg) {
 	return NULL;
 }
 
+#if 0 /* Dead code: old ChibiOS version of adc_thread body — kept for reference only */
 		// For safe start when fault codes occur
 		if (mc_interface_get_fault() != FAULT_CODE_NONE && config.safe_start != SAFE_START_NO_FAULT) {
 			ms_without_power = 0;
@@ -1105,3 +1105,4 @@ static void *adc_thread(void *arg) {
 		}
 	}
 }
+#endif /* Dead code end */

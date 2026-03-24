@@ -19,6 +19,8 @@
 #include "virtual_motor.h"
 #include "terminal.h"
 #include "mc_interface.h"
+#include "hw_config.h"
+#include "stm32f4_compat.h"
 #include "mcpwm_foc.h"
 #include "utils_math.h"
 #include "math.h"
@@ -181,7 +183,7 @@ static void connect_virtual_motor(float ml , float J, float Vbus){
 		//first we send 0.0 current command to make system stop PWM outputs
 		mcpwm_foc_set_current(0.0);
 		//first we disconnect the ADC triggering from TIM8_CC1
-		ADC_InitTypeDef ADC_InitStructure;
+		ADC_InitTypeDef_F4 ADC_InitStructure;
 
 		ADC_InitStructure.ADC_Resolution = ADC_Resolution_12b;
 		ADC_InitStructure.ADC_ScanConvMode = ENABLE;

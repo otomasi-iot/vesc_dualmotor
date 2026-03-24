@@ -24,7 +24,7 @@
 
 #include "ch.h"
 #include "hal.h"
-#include "stm32f4xx_conf.h"
+#include "stm32f1xx_hal.h"
 #include "mc_interface.h"
 #include "timeout.h"
 #include "utils_math.h"
@@ -43,7 +43,7 @@
 
 // Threads
 static THD_FUNCTION(pas_thread, arg);
-__attribute__((section(".ram4"))) static THD_WORKING_AREA(pas_thread_wa, 512);
+static THD_WORKING_AREA(pas_thread_wa, 512);
 
 // Private variables
 static volatile pas_config config;
@@ -203,7 +203,7 @@ static THD_FUNCTION(pas_thread, arg) {
 
 		if (stop_now) {
 			is_running = false;
-			return;
+			return NULL;
 		}
 
 		pas_event_handler();	// this could happen inside an ISR instead of being polled

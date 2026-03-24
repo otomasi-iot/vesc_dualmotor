@@ -42,9 +42,9 @@
 
 // Threads
 static THD_FUNCTION(chuk_thread, arg);
-__attribute__((section(".ram4"))) static THD_WORKING_AREA(chuk_thread_wa, 512);
+static THD_WORKING_AREA(chuk_thread_wa, 512);
 static THD_FUNCTION(output_thread, arg);
-__attribute__((section(".ram4"))) static THD_WORKING_AREA(output_thread_wa, 512);
+static THD_WORKING_AREA(output_thread_wa, 512);
 
 // Private variables
 static volatile bool stop_now = true;
@@ -121,8 +121,8 @@ static THD_FUNCTION(chuk_thread, arg) {
 	chRegSetThreadName("Nunchuk i2c");
 	is_running = true;
 
-	uint8_t rxbuf[10];
-	uint8_t txbuf[10];
+	uint8_t rxbuf[10] = {0};
+	uint8_t txbuf[10] = {0};
 	msg_t status = MSG_OK;
 	systime_t tmo = MS2ST(5);
 	i2caddr_t chuck_addr = 0x52;
@@ -137,7 +137,7 @@ static THD_FUNCTION(chuk_thread, arg) {
 		if (stop_now) {
 			is_running = false;
 			chuck_error = 0;
-			return;
+			return NULL;
 		}
 
 		txbuf[0] = 0xF0;
@@ -526,4 +526,5 @@ static THD_FUNCTION(output_thread, arg) {
 			mc_interface_set_current(current_out);
 		}
 	}
+	return NULL;
 }

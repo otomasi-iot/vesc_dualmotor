@@ -21,101 +21,63 @@
 #include "ch.h"
 #include "hal.h"
 #include "conf_general.h"
-#include "utils.h"
-#include "hwconf/hal_gpio.h"
+#include "utils_math.h"
+#include "hw_config.h"
 
 #pragma GCC optimize ("Os")
 
 // Settings
 #define TIM_CLOCK			2000000 // Hz
 
+// F103 hoverboard: PWM servo output on TIM2_CH2 (PB3)
+#ifndef SERVO_OUT_RATE_HZ
+#define SERVO_OUT_RATE_HZ		50
+#endif
+#ifndef SERVO_OUT_PULSE_MIN_US
+#define SERVO_OUT_PULSE_MIN_US	1000
+#endif
+#ifndef SERVO_OUT_PULSE_MAX_US
+#define SERVO_OUT_PULSE_MAX_US	2000
+#endif
+
 // Private variables
 static volatile bool m_is_running = false;
 
-uint32_t pwm_servo_init(uint32_t freq_hz, float duty) {
-	// Ensure that there is no overflow and that the resolution is reasonable
-	utils_truncate_number_uint32(&freq_hz, TIM_CLOCK / 65000, TIM_CLOCK / 100);
+void pwm_servo_init_servo(void) {
 
-	hal_gpio_init_af(HW_ICU_GPIO, HW_ICU_PIN, HW_ICU_GPIO_AF);
+	__HAL_RCC_TIM2_CLK_ENABLE();
 
-	HW_ICU_TIM_CLK_EN();
+	TIM2->CR1 = 0;
+	TIM2->PSC = (uint16_t)((SYSTEM_CORE_CLOCK) / TIM_CLOCK) - 1;
+	TIM2->ARR = (uint16_t)((uint32_t)TIM_CLOCK / (uint32_t)SERVO_OUT_RATE_HZ);
+	TIM2->EGR = TIM_EGR_UG;
 
-	HW_ICU_TIMER->CR1 = 0;
-	HW_ICU_TIMER->ARR = (uint16_t)((uint32_t)TIM_CLOCK / (uint32_t)freq_hz);
-	HW_ICU_TIMER->PSC = (uint16_t)((168000000 / 2) / TIM_CLOCK) - 1;
-	HW_ICU_TIMER->EGR = TIM_PSCReloadMode_Immediate;
+	// CH2 PWM mode 1
+	TIM2->CCMR1 = (TIM2->CCMR1 & ~(TIM_CCMR1_OC2M | TIM_CCMR1_CC2S)) |
+				  (TIM_CCMR1_OC2M_2 | TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2PE);
+	TIM2->CCER |= TIM_CCER_CC2E;
+	TIM2->CCR2 = (uint32_t)(((uint64_t)(SERVO_OUT_PULSE_MIN_US + SERVO_OUT_PULSE_MAX_US) / 2) * TIM_CLOCK / 1000000);
 
-	utils_truncate_number(&duty, 0.0, 1.0);
-	uint32_t output = (uint32_t)((float)HW_ICU_TIMER->ARR * duty);
-
-	if (HW_ICU_CHANNEL == ICU_CHANNEL_1) {
-		HW_ICU_TIMER->CCER = TIM_OutputState_Enable;
-		HW_ICU_TIMER->CCMR1 = TIM_OCMode_PWM1 | TIM_OCPreload_Enable;
-		HW_ICU_TIMER->CCR1 = output;
-	} else if (HW_ICU_CHANNEL == ICU_CHANNEL_2) {
-		HW_ICU_TIMER->CCER = (TIM_OutputState_Enable << 4);
-		HW_ICU_TIMER->CCMR1 = (TIM_OCMode_PWM1 << 8) | (TIM_OCPreload_Enable << 8);
-		HW_ICU_TIMER->CCR2 = output;
-	}
-
-	HW_ICU_TIMER->CR1 |= TIM_CR1_ARPE;
-
-	pwm_servo_set_servo_out(0.5);
-
-	HW_ICU_TIMER->CR1 |= TIM_CR1_CEN;
+	TIM2->CR1 |= TIM_CR1_ARPE | TIM_CR1_CEN;
 
 	m_is_running = true;
-
-	return freq_hz;
-}
-
-void pwm_servo_init_servo(void) {
-	pwm_servo_init(SERVO_OUT_RATE_HZ, 0.0);
 }
 
 void pwm_servo_stop(void) {
 	if (m_is_running) {
-		hal_gpio_init_input(HW_ICU_GPIO, HW_ICU_PIN);
-		TIM_DeInit(HW_ICU_TIMER);
+		TIM2->CCER &= ~TIM_CCER_CC2E;
 	}
-
 	m_is_running = false;
 }
 
-float pwm_servo_set_duty(float duty) {
-	if (!m_is_running) {
-		return -1.0;
-	}
-
-	utils_truncate_number(&duty, 0.0, 1.0);
-	uint32_t output = (uint32_t)((float)HW_ICU_TIMER->ARR * duty);
-
-	if (HW_ICU_CHANNEL == ICU_CHANNEL_1) {
-		HW_ICU_TIMER->CCR1 = output;
-	} else if (HW_ICU_CHANNEL == ICU_CHANNEL_2) {
-		HW_ICU_TIMER->CCR2 = output;
-	}
-
-	return (float)output / (float)HW_ICU_TIMER->ARR;
-
-}
-
 void pwm_servo_set_servo_out(float output) {
-	if (!m_is_running) {
-		return;
-	}
+	if (!m_is_running) return;
 
 	utils_truncate_number(&output, 0.0, 1.0);
 
 	float us = (float)SERVO_OUT_PULSE_MIN_US + output *
 			(float)(SERVO_OUT_PULSE_MAX_US - SERVO_OUT_PULSE_MIN_US);
-	us *= (float)TIM_CLOCK / 1000000.0;
-
-	if (HW_ICU_CHANNEL == ICU_CHANNEL_1) {
-		HW_ICU_TIMER->CCR1 = (uint32_t)us;
-	} else if (HW_ICU_CHANNEL == ICU_CHANNEL_2) {
-		HW_ICU_TIMER->CCR2 = (uint32_t)us;
-	}
+	TIM2->CCR2 = (uint32_t)(us * (float)TIM_CLOCK / 1000000.0f);
 }
 
 bool pwm_servo_is_running(void) {

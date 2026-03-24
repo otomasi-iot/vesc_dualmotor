@@ -22,6 +22,18 @@
 #include "commands.h"
 #include "ch.h"
 #include "hal.h"
+
+// Stub for lisp interface (not used in F1 build)
+static const char* lispif_print_prefix(void) {
+	return "";
+}
+
+// LZO compression type stub
+#ifndef COMMANDS_USE_LZO
+typedef unsigned int lzo_uint;
+#else
+typedef unsigned int lzo_uint;
+#endif
 #include "mc_interface.h"
 #include "stm32f4xx_conf.h"
 #include "pwm_servo.h"
@@ -75,7 +87,7 @@
 // Threads
 static THD_FUNCTION(blocking_thread, arg);
 static THD_WORKING_AREA(blocking_thread_wa, 3000);
-static thread_t *blocking_tp;
+static thread_t blocking_tp;
 
 // Private variables
 static char print_buffer[PRINT_BUFFER_SIZE];
@@ -342,8 +354,9 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			uint8_t *send_buffer_global = mempools_get_packet_buffer();
 			memcpy(send_buffer_global, data + 6, len - 6);
 			int32_t ind = 4;
+			lzo_uint decompressed_len = 0;
 			#if COMMANDS_USE_LZO
-			lzo_uint decompressed_len = buffer_get_uint16(data, &ind);
+			decompressed_len = buffer_get_uint16(data, &ind);
 			lzo1x_decompress_safe(send_buffer_global, len - 6, data + 4, &decompressed_len, NULL);
 			#else
 			(void)data;
@@ -369,8 +382,9 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			uint8_t *send_buffer_global = mempools_get_packet_buffer();
 			memcpy(send_buffer_global, data + 6, len - 6);
 			int32_t ind = 4;
+			lzo_uint decompressed_len = 0;
 			#if COMMANDS_USE_LZO
-			lzo_uint decompressed_len = buffer_get_uint16(data, &ind);
+			decompressed_len = buffer_get_uint16(data, &ind);
 			lzo1x_decompress_safe(send_buffer_global, len - 6, data + 4, &decompressed_len, NULL);
 			#else
 			(void)data;
@@ -2040,7 +2054,7 @@ static THD_FUNCTION(blocking_thread, arg) {
 
 	chRegSetThreadName("comm_block");
 
-	blocking_tp = chThdGetSelfX();
+	blocking_tp = chThdGetSelfX()->handle;
 
 	// Wait for main to finish
 	while(!main_init_done()) {
@@ -2365,19 +2379,20 @@ static THD_FUNCTION(blocking_thread, arg) {
 		} break;
 
 		case COMM_BM_WRITE_FLASH_LZO:
-		case COMM_BM_WRITE_FLASH: {
-			if (packet_id == COMM_BM_WRITE_FLASH_LZO) {
-				memcpy(send_buffer, data + 6, len - 6);
-				int32_t ind = 4;
-				#if COMMANDS_USE_LZO
-				lzo_uint decompressed_len = buffer_get_uint16(data, &ind);
-				lzo1x_decompress_safe(send_buffer, len - 6, data + 4, &decompressed_len, NULL);
-				#else
-				(void)data;
-				(void)ind;
-				return;
-				#endif
-				len = decompressed_len + 4;
+	case COMM_BM_WRITE_FLASH: {
+		if (packet_id == COMM_BM_WRITE_FLASH_LZO) {
+			memcpy(send_buffer, data + 6, len - 6);
+			int32_t ind = 4;
+			lzo_uint decompressed_len = 0;
+			#if COMMANDS_USE_LZO
+			decompressed_len = buffer_get_uint16(data, &ind);
+			lzo1x_decompress_safe(send_buffer, len - 6, data + 4, &decompressed_len, NULL);
+			#else
+			(void)data;
+			(void)ind;
+			return;
+			#endif
+			len = decompressed_len + 4;
 			}
 
 			int32_t ind = 0;
@@ -2536,4 +2551,6 @@ static THD_FUNCTION(blocking_thread, arg) {
 			break;
 		}
 	}
+
+	return NULL;
 }

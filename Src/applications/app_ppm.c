@@ -20,17 +20,17 @@
 #pragma GCC optimize ("Os")
 
 #include "app.h"
-
-#include "ch.h"
-#include "hal.h"
-#include "stm32f4xx_conf.h"
-#include "servo_dec.h"
+#include "stm32f1xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include "mc_interface.h"
 #include "timeout.h"
 #include "utils_math.h"
 #include "utils_sys.h"
 #include "comm_can.h"
+#include "hw.h"
 #include <math.h>
+#include "servo_dec.h"
 
 // Settings
 #define MAX_CAN_AGE						0.1
@@ -38,8 +38,8 @@
 
 // Threads
 static THD_FUNCTION(ppm_thread, arg);
-__attribute__((section(".ram4"))) static THD_WORKING_AREA(ppm_thread_wa, 512);
-static thread_t *ppm_tp;
+static THD_WORKING_AREA(ppm_thread_wa, 512);
+static thread_t ppm_tp;
 static volatile bool ppm_rx = false;
 
 // Private functions
@@ -120,7 +120,7 @@ static THD_FUNCTION(ppm_thread, arg) {
 
 		if (stop_now) {
 			is_running = false;
-			return;
+			return NULL;
 		}
 
 		if (ppm_rx) {

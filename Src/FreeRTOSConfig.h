@@ -8,13 +8,13 @@
 #define configMAX_TASK_NAME_LEN                 16
 #define configIDLE_SHOULD_YIELD                 1
 
-// Task count = 25 (motor: 5, CAN: 5, USB: 3, encoder: 4, IMU: 2, app: 3, utility: 3)
-#define configMAX_TASKS                         30  // Add 5 extra for safety
+// Task count reduced for commands.c support
+#define configMAX_TASKS                         20  // Reduced from 30
 
 //====== Memory Management ======
 #define configSUPPORT_STATIC_ALLOCATION         1  // Use static pools
 #define configSUPPORT_DYNAMIC_ALLOCATION        1  // Required by CMSIS-RTOS2 wrapper
-#define configTOTAL_HEAP_SIZE                   (16 * 1024)  // Heap for RTOS objects
+#define configTOTAL_HEAP_SIZE                   (32)  // 32 bytes heap (absolute minimum)
 
 //====== Timer Tick Configuration ======
 #define configTICK_RATE_HZ                      1000  // 1ms tick (1000 Hz)
@@ -22,13 +22,13 @@
 #define configUSE_IDLE_HOOK                     1    // Watchdog/power management in idle
 
 // Minimal stack sizes (words, not bytes)
-#define configMINIMAL_STACK_SIZE                128
+#define configMINIMAL_STACK_SIZE                32
 
 // Software timers (used by CMSIS-RTOS2 wrapper)
 #define configUSE_TIMERS                        1
 #define configTIMER_TASK_PRIORITY               (configMAX_PRIORITIES - 1)
-#define configTIMER_QUEUE_LENGTH                10
-#define configTIMER_TASK_STACK_DEPTH            256
+#define configTIMER_QUEUE_LENGTH                2
+#define configTIMER_TASK_STACK_DEPTH            48
 
 //====== Synchronization Primitives ======
 #define configUSE_MUTEXES                       1  // Priority inheritance mutexes

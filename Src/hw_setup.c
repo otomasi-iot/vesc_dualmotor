@@ -9,6 +9,16 @@
 #include "hw_config.h"
 #include "stm32f1xx_hal.h"
 
+/* ADC DMA buffer — filled by ADC DMA transfers, indexed by ADC_IND_* macros */
+volatile uint16_t ADC_Value[HW_ADC_CHANNELS] = {0};
+
+/* Dummy I2C handle (no I2C hardware on hoverboard, but VESC code references it) */
+I2C_HandleTypeDef hi2c1;
+
+/* UART SerialDriver instance for VESC compatibility (wraps huart3) */
+#include "ch.h"
+SerialDriver HW_UART_DEV_inst;
+
 /* Global peripheral handles */
 TIM_HandleTypeDef htim1;    /* Right motor PWM */
 TIM_HandleTypeDef htim8;    /* Left motor PWM  */
@@ -18,6 +28,7 @@ ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
 UART_HandleTypeDef huart3;  /* VESC communication */
 IWDG_HandleTypeDef hiwdg;   /* Independent watchdog */
+CAN_HandleTypeDef hcan1;    /* CAN bus (stub for compatibility) */
 DMA_HandleTypeDef hdma_usart3_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
 

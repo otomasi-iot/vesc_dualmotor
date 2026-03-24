@@ -18,6 +18,7 @@
     */
 
 #include "mempools.h"
+#include "ch.h"
 #include "packet.h"
 
 // Private types

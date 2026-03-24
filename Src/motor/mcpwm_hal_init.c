@@ -35,7 +35,7 @@ void mcpwm_init_hardware(void) {
     // Break & Dead Time
     TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
     sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_ENABLE;
-    sBreakDeadTimeConfig.OffStateIdleMode = TIM_OSSI_ENABLE;
+    sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_ENABLE;
     sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
     sBreakDeadTimeConfig.DeadTime = 72;  // 1 us
     sBreakDeadTimeConfig.BreakState = TIM_BREAK_ENABLE;

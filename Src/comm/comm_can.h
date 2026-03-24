@@ -23,11 +23,21 @@
 #include "conf_general.h"
 #include "hal.h"
 
+// CAN frame type defined in comm_can_hal.h
+#if CAN_ENABLE
+#include "comm_can_hal.h"
+#else
+// Forward declare for when CAN is disabled
+typedef struct CANRxFrame CANRxFrame;
+#endif
+
 #if !CAN_ENABLE
-// CAN disabled: provide minimal types/symbols so other modules compile.
-typedef struct {
-	uint32_t dummy;
-} CANRxFrame;
+// CAN disabled: provide complete stub types/symbols so all modules compile.
+
+#define CAN_STATUS_MSGS_TO_STORE	10
+
+// Dummy status message for CAN-disabled builds
+static can_status_msg _can_dummy_msg = { .id = -1 };
 
 static inline void comm_can_init(void) {}
 static inline CAN_BAUD comm_can_kbits_to_baud(int kbits) { (void)kbits; return (CAN_BAUD)0; }
@@ -39,6 +49,57 @@ static inline msg_t comm_can_transmit_sid(uint32_t id, const uint8_t *data, uint
 static inline void comm_can_set_sid_rx_callback(bool (*p_func)(uint32_t id, uint8_t *data, uint8_t len)) { (void)p_func; }
 static inline void comm_can_set_eid_rx_callback(bool (*p_func)(uint32_t id, uint8_t *data, uint8_t len)) { (void)p_func; }
 static inline CANRxFrame *comm_can_get_rx_frame(int interface) { (void)interface; return 0; }
+static inline void comm_can_send_buffer(uint8_t id, uint8_t *data, unsigned int len, uint8_t send) { (void)id; (void)data; (void)len; (void)send; }
+static inline void comm_can_set_duty(uint8_t id, float duty) { (void)id; (void)duty; }
+static inline void comm_can_set_current(uint8_t id, float current) { (void)id; (void)current; }
+static inline void comm_can_set_current_off_delay(uint8_t id, float current, float off_delay) { (void)id; (void)current; (void)off_delay; }
+static inline void comm_can_set_current_brake(uint8_t id, float current) { (void)id; (void)current; }
+static inline void comm_can_set_rpm(uint8_t id, float rpm) { (void)id; (void)rpm; }
+static inline void comm_can_set_pos(uint8_t id, float pos) { (void)id; (void)pos; }
+static inline void comm_can_set_current_rel(uint8_t id, float current_rel) { (void)id; (void)current_rel; }
+static inline void comm_can_set_current_rel_off_delay(uint8_t id, float current_rel, float off_delay) { (void)id; (void)current_rel; (void)off_delay; }
+static inline void comm_can_set_current_brake_rel(uint8_t id, float current_rel) { (void)id; (void)current_rel; }
+static inline bool comm_can_ping(uint8_t id, HW_TYPE *hw_type) { (void)id; (void)hw_type; return false; }
+static inline void comm_can_detect_apply_all_foc(uint8_t id, bool activate, float max_power_loss) { (void)id; (void)activate; (void)max_power_loss; }
+static inline void comm_can_conf_current_limits(uint8_t id, bool store, float min, float max) { (void)id; (void)store; (void)min; (void)max; }
+static inline void comm_can_conf_current_limits_in(uint8_t id, bool store, float min, float max) { (void)id; (void)store; (void)min; (void)max; }
+static inline void comm_can_conf_foc_erpms(uint8_t id, bool store, float foc_openloop_rpm, float foc_sl_erpm) { (void)id; (void)store; (void)foc_openloop_rpm; (void)foc_sl_erpm; }
+static inline int comm_can_detect_all_foc_res(unsigned int index) { (void)index; return 0; }
+static inline int comm_can_detect_all_foc_res_size(void) { return 0; }
+static inline void comm_can_detect_all_foc_res_clear(void) {}
+static inline void comm_can_conf_battery_cut(uint8_t id, bool store, float start, float end) { (void)id; (void)store; (void)start; (void)end; }
+static inline void comm_can_shutdown(uint8_t id) { (void)id; }
+static inline void comm_can_send_update_baud(int kbits, int delay_msec) { (void)kbits; (void)delay_msec; }
+static inline can_status_msg *comm_can_get_status_msg_index(int index) { (void)index; return &_can_dummy_msg; }
+static inline can_status_msg *comm_can_get_status_msg_id(int id) { (void)id; return &_can_dummy_msg; }
+static inline can_status_msg_2 *comm_can_get_status_msg_2_index(int index) { (void)index; return 0; }
+static inline can_status_msg_2 *comm_can_get_status_msg_2_id(int id) { (void)id; return 0; }
+static inline can_status_msg_3 *comm_can_get_status_msg_3_index(int index) { (void)index; return 0; }
+static inline can_status_msg_3 *comm_can_get_status_msg_3_id(int id) { (void)id; return 0; }
+static inline can_status_msg_4 *comm_can_get_status_msg_4_index(int index) { (void)index; return 0; }
+static inline can_status_msg_4 *comm_can_get_status_msg_4_id(int id) { (void)id; return 0; }
+static inline can_status_msg_5 *comm_can_get_status_msg_5_index(int index) { (void)index; return 0; }
+static inline can_status_msg_5 *comm_can_get_status_msg_5_id(int id) { (void)id; return 0; }
+static inline can_status_msg_6 *comm_can_get_status_msg_6_index(int index) { (void)index; return 0; }
+static inline can_status_msg_6 *comm_can_get_status_msg_6_id(int id) { (void)id; return 0; }
+static inline io_board_adc_values *comm_can_get_io_board_adc_1_4_index(int index) { (void)index; return 0; }
+static inline io_board_adc_values *comm_can_get_io_board_adc_1_4_id(int id) { (void)id; return 0; }
+static inline io_board_adc_values *comm_can_get_io_board_adc_5_8_index(int index) { (void)index; return 0; }
+static inline io_board_adc_values *comm_can_get_io_board_adc_5_8_id(int id) { (void)id; return 0; }
+static inline io_board_digial_inputs *comm_can_get_io_board_digital_in_index(int index) { (void)index; return 0; }
+static inline io_board_digial_inputs *comm_can_get_io_board_digital_in_id(int id) { (void)id; return 0; }
+static inline void comm_can_io_board_set_output_digital(int id, int channel, bool on) { (void)id; (void)channel; (void)on; }
+static inline void comm_can_io_board_set_output_pwm(int id, int channel, float duty) { (void)id; (void)channel; (void)duty; }
+static inline psw_status *comm_can_get_psw_status_index(int index) { (void)index; return 0; }
+static inline psw_status *comm_can_get_psw_status_id(int id) { (void)id; return 0; }
+static inline void comm_can_psw_switch(int id, bool is_on, bool plot) { (void)id; (void)is_on; (void)plot; }
+static inline void comm_can_update_pid_pos_offset(int id, float angle_now, bool store) { (void)id; (void)angle_now; (void)store; }
+static inline void comm_can_send_status1(uint8_t id, bool replace) { (void)id; (void)replace; }
+static inline void comm_can_send_status2(uint8_t id, bool replace) { (void)id; (void)replace; }
+static inline void comm_can_send_status3(uint8_t id, bool replace) { (void)id; (void)replace; }
+static inline void comm_can_send_status4(uint8_t id, bool replace) { (void)id; (void)replace; }
+static inline void comm_can_send_status5(uint8_t id, bool replace) { (void)id; (void)replace; }
+static inline void comm_can_send_status6(uint8_t id, bool replace) { (void)id; (void)replace; }
 
 #else
 

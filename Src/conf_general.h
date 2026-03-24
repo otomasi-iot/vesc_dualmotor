@@ -120,11 +120,17 @@
 
 // Current ADC to amperes factor
 #define FAC_CURRENT					((V_REG / 4095.0) / (CURRENT_SHUNT_RES * CURRENT_AMP_GAIN))
+#undef FAC_CURRENT1
 #define FAC_CURRENT1				(FAC_CURRENT * CURRENT_CAL1)
+#undef FAC_CURRENT2
 #define FAC_CURRENT2				(FAC_CURRENT * CURRENT_CAL2)
+#undef FAC_CURRENT3
 #define FAC_CURRENT3				(FAC_CURRENT * CURRENT_CAL3)
+#undef FAC_CURRENT1_M2
 #define FAC_CURRENT1_M2				(FAC_CURRENT * CURRENT_CAL1_M2)
+#undef FAC_CURRENT2_M2
 #define FAC_CURRENT2_M2				(FAC_CURRENT * CURRENT_CAL2_M2)
+#undef FAC_CURRENT3_M2
 #define FAC_CURRENT3_M2				(FAC_CURRENT * CURRENT_CAL3_M2)
 
 #define VOLTAGE_TO_ADC_FACTOR	( VIN_R2 / (VIN_R2 + VIN_R1) ) * ( 4096.0 / V_REG )
@@ -141,9 +147,11 @@
 /*
  * MCU
  */
-#define SYSTEM_CORE_CLOCK			168000000
-#define STM32_UUID					((uint32_t*)0x1FFF7A10)
-#define STM32_UUID_8				((uint8_t*)0x1FFF7A10)
+#define SYSTEM_CORE_CLOCK			72000000
+#undef STM32_UUID
+#define STM32_UUID					((uint32_t*)0x1FFFF7E8)
+#undef STM32_UUID_8
+#define STM32_UUID_8				((const uint8_t*)0x1FFFF7E8)
 
 /*
  *	Run the BLDC speed controller in current mode instead of duty cycle mode. This will

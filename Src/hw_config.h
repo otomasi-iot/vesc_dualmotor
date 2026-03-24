@@ -16,6 +16,20 @@ extern "C" {
 #endif
 
 /*============================================================================
+ * HARDWARE FEATURES - Dual Motor Hoverboard
+ *============================================================================*/
+#ifndef HW_HAS_DUAL_MOTORS
+#define HW_HAS_DUAL_MOTORS              // Enable dual motor support (TIM1 + TIM8)
+#endif
+#ifndef HW_NAME
+#define HW_NAME                         "VESC_F103_HOVERBOARD_DUAL"
+#endif
+
+#ifndef HW_DEFAULT_ID
+#define HW_DEFAULT_ID                   0
+#endif
+
+/*============================================================================
  * PIN MAPPING — Based on the standard hoverboard mainboard
  * (STM32F103RCT6, TIM1=Right motor, TIM8=Left motor)
  *============================================================================*/
@@ -98,7 +112,227 @@ extern "C" {
 
 /* ---- USART3 — VESC Communication (PB10=TX, PB11=RX) ---- */
 #define VESC_USART         USART3
+
+/*============================================================================
+ * ADC CHANNEL CONFIGURATION
+ *============================================================================*/
+
+// ADC channels for regular conversions (voltage monitoring)
+#define HW_ADC_CHANNELS         6
+#define HW_ADC_CHANNELS_EXTRA   0
+#define HW_ADC_NBR_CONV         6
+
+// ADC channels for injected conversions (current sensing)
+#define HW_ADC_INJ_CHANNELS     2
+
+// ADC channel indices (regular conversions)
+#define ADC_IND_SENS1           0
+#define ADC_IND_SENS2           1
+#define ADC_IND_SENS3           2
+#define ADC_IND_VIN_SENS        3
+#define ADC_IND_EXT             4
+#define ADC_IND_TEMP_MOS        5
+#define ADC_IND_TEMP_MOS_M2     5  // Motor 2 MOS temp (same channel for F103)
+#define ADC_IND_TEMP_MOTOR      5  // Same as TEMP_MOS for F103
+#define ADC_IND_TEMP_MOTOR_2    5  // Motor 2 temp (same channel for F103)
+
+// Current sensing ADC channels (injected) - MUST be defined early for macros
+#define ADC_IND_CURR1           0
+#define ADC_IND_CURR2           1
+#define ADC_IND_CURR3           2
+
+// Motor 2 current sensing indices
+#define ADC_IND_CURR1_M2        3
+#define ADC_IND_CURR2_M2        4
+#define ADC_IND_CURR3_M2        5
+
+// Temperature filter constant
+#define MOTOR_TEMP_LPF          0.1
+
+// Voltage macros (mapped to ADC_Value array)
+#define ADC_V_L1                ADC_Value[ADC_IND_SENS1]
+#define ADC_V_L2                ADC_Value[ADC_IND_SENS2]
+#define ADC_V_L3                ADC_Value[ADC_IND_SENS3]
+#define ADC_V_L4                ADC_Value[ADC_IND_VIN_SENS]
+#define ADC_V_L5                ADC_Value[ADC_IND_EXT]
+#define ADC_V_L6                ADC_Value[ADC_IND_TEMP_MOS]
+#define ADC_V_ZERO              2048  // Virtual ground for current sensing
+
+// ADC voltage conversion constants (defined early to avoid macro expansion issues)
+#define HW_ADC_VOLTS            0.0008056640625  // 3.3 / 4096.0
+#define HW_ADC_VOLTS_PH_FACTOR  0.0244  // Phase voltage scaling
+#define HW_ADC_VOLTS_INPUT_FACTOR  0.0732  // Input voltage scaling
+
+// Backward compatibility aliases
+#define ADC_VOLTS               HW_ADC_VOLTS
+#define ADC_VOLTS_PH_FACTOR     HW_ADC_VOLTS_PH_FACTOR
+#define ADC_VOLTS_INPUT_FACTOR  HW_ADC_VOLTS_INPUT_FACTOR
+
+// Voltage conversion macros (using direct calculation to avoid macro expansion issues)
+#define ADC_V_L1_VOLTS          ((float)ADC_Value[ADC_IND_SENS1] * HW_ADC_VOLTS * HW_ADC_VOLTS_PH_FACTOR)
+#define ADC_V_L2_VOLTS          ((float)ADC_Value[ADC_IND_SENS2] * HW_ADC_VOLTS * HW_ADC_VOLTS_PH_FACTOR)
+#define ADC_V_L3_VOLTS          ((float)ADC_Value[ADC_IND_SENS3] * HW_ADC_VOLTS * HW_ADC_VOLTS_PH_FACTOR)
+#define ADC_V_L4_VOLTS          ((float)ADC_Value[ADC_IND_VIN_SENS] * HW_ADC_VOLTS * HW_ADC_VOLTS_INPUT_FACTOR)
+#define ADC_V_L5_VOLTS          ((float)ADC_Value[ADC_IND_EXT] * HW_ADC_VOLTS)
+#define ADC_V_L6_VOLTS          ((float)ADC_Value[ADC_IND_TEMP_MOS] * HW_ADC_VOLTS)
+
+// External ADC_Value array (defined in motor control)
+extern volatile uint16_t ADC_Value[HW_ADC_CHANNELS];
+
+// Hardware parameters
+#define HW_DEAD_TIME_NSEC           360     // Dead time in nanoseconds
+#define HW_MAX_CURRENT_OFFSET       620     // Maximum current offset
+#define SYSTEM_CORE_CLOCK           72000000 // 72 MHz system clock
+
+/*============================================================================
+ * TEMPERATURE SENSING MACROS
+ *============================================================================*/
+// Helper macro for NTC resistance calculation
+#define NTC_RES(adc_val) ((4095.0f * 10000.0f) / (float)(adc_val) - 10000.0f)
+
+// Helper macro for basic NTC temperature
+#define NTC_TEMP(adc_val) (1.0f / ((logf(NTC_RES(adc_val) / 10000.0f) / 3380.0f) + (1.0f / 298.15f)) - 273.15f)
+
+// NTC with custom beta value
+#define NTC_TEMP_MOTOR(beta) (1.0f / ((logf(NTC_RES(ADC_Value[ADC_IND_TEMP_MOTOR]) / 10000.0f) / (beta)) + (1.0f / 298.15f)) - 273.15f)
+#define NTC_TEMP_MOTOR_2(beta) (1.0f / ((logf(NTC_RES(ADC_Value[ADC_IND_TEMP_MOTOR_2]) / 10000.0f) / (beta)) + (1.0f / 298.15f)) - 273.15f)
+
+// 100K NTC thermistor
+#define NTC100K_TEMP_MOTOR(beta) (1.0f / ((logf(NTC_RES(ADC_Value[ADC_IND_TEMP_MOTOR]) / 100000.0f) / (beta)) + (1.0f / 298.15f)) - 273.15f)
+#define NTC100K_TEMP_MOTOR_2(beta) (1.0f / ((logf(NTC_RES(ADC_Value[ADC_IND_TEMP_MOTOR_2]) / 100000.0f) / (beta)) + (1.0f / 298.15f)) - 273.15f)
+
+// PTC temperature calculation
+#define PTC_TEMP_MOTOR(res, con, temp_base) ((float)ADC_Value[ADC_IND_TEMP_MOTOR] * (res) * (con) - (temp_base))
+#define PTC_TEMP_MOTOR_2(res, con, temp_base) ((float)ADC_Value[ADC_IND_TEMP_MOTOR_2] * (res) * (con) - (temp_base))
+
+// Custom NTC/PTC with base temperature
+#define NTCX_TEMP_MOTOR(res, beta, t_base) (1.0f / ((logf(NTC_RES(ADC_Value[ADC_IND_TEMP_MOTOR]) / (res)) / (beta)) + (1.0f / (273.15f + (t_base)))) - 273.15f)
+#define NTCX_TEMP_MOTOR_2(res, beta, t_base) (1.0f / ((logf(NTC_RES(ADC_Value[ADC_IND_TEMP_MOTOR_2]) / (res)) / (beta)) + (1.0f / (273.15f + (t_base)))) - 273.15f)
+
+// NTC resistance for motor temperature sensor
+#define NTC_RES_MOTOR(adc_val) NTC_RES(adc_val)
+
+// MOS temperature (using same NTC formula)
+#define NTC_TEMP_MOS1() NTC_TEMP(ADC_Value[ADC_IND_TEMP_MOS])
+#define NTC_TEMP_MOS2() NTC_TEMP(ADC_Value[ADC_IND_TEMP_MOS])
+#define NTC_TEMP_MOS1_M2() NTC_TEMP(ADC_Value[ADC_IND_TEMP_MOS_M2])
+#define NTC_TEMP_MOS2_M2() NTC_TEMP(ADC_Value[ADC_IND_TEMP_MOS_M2])
+
+/*============================================================================
+ * HALL SENSOR READING MACROS
+ *============================================================================*/
+#define READ_HALL1() HAL_GPIO_ReadPin(LEFT_HALL_U_PORT, LEFT_HALL_U_PIN)
+#define READ_HALL2() HAL_GPIO_ReadPin(LEFT_HALL_V_PORT, LEFT_HALL_V_PIN)
+#define READ_HALL3() HAL_GPIO_ReadPin(LEFT_HALL_W_PORT, LEFT_HALL_W_PIN)
+
+#define READ_HALL1_2() HAL_GPIO_ReadPin(RIGHT_HALL_U_PORT, RIGHT_HALL_U_PIN)
+#define READ_HALL2_2() HAL_GPIO_ReadPin(RIGHT_HALL_V_PORT, RIGHT_HALL_V_PIN)
+#define READ_HALL3_2() HAL_GPIO_ReadPin(RIGHT_HALL_W_PORT, RIGHT_HALL_W_PIN)
+
+/*============================================================================
+ * BRAKE RESISTOR CONTROL MACROS (for BLDC commutation)
+ *============================================================================*/
+#define ENABLE_BR()     do { /* Brake resistor enable - not used on hoverboard */ } while(0)
+#define DISABLE_BR()    do { /* Brake resistor disable - not used on hoverboard */ } while(0)
+#define ENABLE_BR1()    ENABLE_BR()
+#define ENABLE_BR2()    ENABLE_BR()
+#define ENABLE_BR3()    ENABLE_BR()
+#define DISABLE_BR1()   DISABLE_BR()
+#define DISABLE_BR2()   DISABLE_BR()
+#define DISABLE_BR3()   DISABLE_BR()
+#define ENABLE_BR_2()   ENABLE_BR()
+
+/*============================================================================
+ * CURRENT AND PHASE FILTER MACROS
+ *============================================================================*/
+#define CURRENT_FILTER_OFF()    do { /* Current filter off */ } while(0)
+#define CURRENT_FILTER_OFF_M2() do { /* Current filter off motor 2 */ } while(0)
+#define CURRENT_FILTER_ON()     do { /* Current filter on */ } while(0)
+#define CURRENT_FILTER_ON_M2()  do { /* Current filter on motor 2 */ } while(0)
+#define PHASE_FILTER_OFF()      do { /* Phase filter off */ } while(0)
+#define PHASE_FILTER_OFF_M2()   do { /* Phase filter off motor 2 */ } while(0)
+#define PHASE_FILTER_ON()       do { /* Phase filter on */ } while(0)
+#define PHASE_FILTER_ON_M2()    do { /* Phase filter on motor 2 */ } while(0)
+
+/*============================================================================
+ * INPUT VOLTAGE READING MACRO
+ *============================================================================*/
+#define GET_INPUT_VOLTAGE() ((float)ADC_Value[ADC_IND_VIN_SENS] * HW_ADC_VOLTS * HW_ADC_VOLTS_INPUT_FACTOR)
+
+/*============================================================================
+ * AUXILIARY OUTPUT CONTROL
+ *============================================================================*/
+#define AUX_ON()  do { /* Auxiliary output on */ } while(0)
+#define AUX_OFF() do { /* Auxiliary output off */ } while(0)
+
+/*============================================================================
+ * DRIVER FAULT RESET AND CONTROL
+ *============================================================================*/
+#define HW_RESET_DRV_FAULTS() do { /* Reset gate driver faults */ } while(0)
+#define IS_DRV_FAULT()        (0)  // No DRV fault pin on hoverboard
+#define IS_DRV_FAULT_2()      (0)  // No DRV fault pin motor 2
+
+/*============================================================================
+ * DC CALIBRATION AND GATE CONTROL
+ *============================================================================*/
+#define DCCAL_ON()            do { /* DC calibration on */ } while(0)
+#define DCCAL_OFF()           do { /* DC calibration off */ } while(0)
+#define ENABLE_GATE()         do { /* Enable gate drivers */ } while(0)
+#define DISABLE_GATE()        do { /* Disable gate drivers */ } while(0)
+
+/*============================================================================
+ * CURRENT SENSING MACROS (ADC injection)
+ *============================================================================*/
+// Motor 1 current sensing
+#define HW_GET_INJ_CURR1()    ((float)(ADC_Value[ADC_IND_CURR1] - 2048) * FAC_CURRENT1)
+#define HW_GET_INJ_CURR2()    ((float)(ADC_Value[ADC_IND_CURR2] - 2048) * FAC_CURRENT2)
+#define HW_GET_INJ_CURR3()    ((float)(ADC_Value[ADC_IND_CURR3] - 2048) * FAC_CURRENT3)
+#define HW_GET_INJ_CURR1_S2() ((float)(ADC_Value[ADC_IND_CURR1] - 2048) * FAC_CURRENT1)
+#define GET_CURRENT1()        ((float)(ADC_Value[ADC_IND_CURR1] - 2048) * FAC_CURRENT1)
+#define GET_CURRENT2()        ((float)(ADC_Value[ADC_IND_CURR2] - 2048) * FAC_CURRENT2)
+#define GET_CURRENT3()        ((float)(ADC_Value[ADC_IND_CURR3] - 2048) * FAC_CURRENT3)
+
+// Motor 2 current sensing
+#define GET_CURRENT1_M2()     ((float)(ADC_Value[ADC_IND_CURR1_M2] - 2048) * FAC_CURRENT1_M2)
+#define GET_CURRENT2_M2()     ((float)(ADC_Value[ADC_IND_CURR2_M2] - 2048) * FAC_CURRENT2_M2)
+#define GET_CURRENT3_M2()     ((float)(ADC_Value[ADC_IND_CURR3_M2] - 2048) * FAC_CURRENT3_M2)
+
+// Current sensing parameters
+#define RSHUNT                      0.001   // Shunt resistor value (1 mOhm)
+#define AMPLIFICATION_GAIN          20.0    // Current amplifier gain
+#define ADC_REFERENCE_VOLTAGE       3.3     // ADC reference voltage
+
+// Current sensing factors (calculated from shunt and amplifier)
+#define FAC_CURRENT1        (1.0f / (RSHUNT * AMPLIFICATION_GAIN * 4095.0f / ADC_REFERENCE_VOLTAGE))
+#define FAC_CURRENT2        FAC_CURRENT1
+#define FAC_CURRENT3        FAC_CURRENT1
+
+// Motor 2 current sensing factors
+#define FAC_CURRENT1_M2     FAC_CURRENT1
+#define FAC_CURRENT2_M2     FAC_CURRENT1
+#define FAC_CURRENT3_M2     FAC_CURRENT1
+
+// UART pins for VESC communication
 #define VESC_USART_BAUD    115200
+#define HW_UART_TX_PORT    GPIOB
+#define HW_UART_TX_PIN     GPIO_PIN_10
+#define HW_UART_RX_PORT    GPIOB
+#define HW_UART_RX_PIN     GPIO_PIN_11
+
+// LED for status indication
+#define LED_PORT           GPIOB
+#define LED_PIN            GPIO_PIN_2
+
+/* APP Input Macros */
+#define HW_ICU_GPIO        PPM_INPUT_PORT
+#define HW_ICU_PIN         PPM_INPUT_PIN
+#define HW_HALL_TRIGGER_GPIO LEFT_HALL_U_PORT
+#define HW_HALL_TRIGGER_PIN  LEFT_HALL_U_PIN
+#undef ADC_IND_EXT
+#define ADC_IND_EXT        0
+#undef ADC_IND_EXT2
+#define ADC_IND_EXT2       0
+// MSG_OK is defined in ch.h — do not redefine here
 
 /*============================================================================
  * MOTOR CONTROL PARAMETERS
@@ -142,7 +376,9 @@ extern "C" {
 #define ADC_CLK_MHz            (ADV_TIM_CLK_MHz / 6)  /* ~10.67 MHz */
 
 /* Current sensing */
+#undef RSHUNT
 #define RSHUNT                 0.003f   /* Ohms — typical hoverboard */
+#undef AMPLIFICATION_GAIN
 #define AMPLIFICATION_GAIN     10.0f
 #define NOMINAL_CURRENT        4000     /* mA peak */
 
@@ -210,6 +446,7 @@ extern "C" {
 #define DEFAULT_CONTROL_MODE   0  /* 0 = torque mode */
 
 /* Misc conversion */
+#undef ADC_REFERENCE_VOLTAGE
 #define ADC_REFERENCE_VOLTAGE  3.30f
 
 /* Flux weakening */
@@ -356,10 +593,100 @@ extern "C" {
  *============================================================================*/
 #define ABS(a)          (((a) < 0) ? -(a) : (a))
 #define CLAMP(x, lo, hi) (((x) > (hi)) ? (hi) : (((x) < (lo)) ? (lo) : (x)))
+#ifndef MIN
 #define MIN(a, b)       (((a) < (b)) ? (a) : (b))
+#endif
+#ifndef MAX
 #define MAX(a, b)       (((a) > (b)) ? (a) : (b))
-#define SIGN(x)         (((x) < 0) ? -1 : 1)
+#endif
+// SIGN macro is defined in utils_math.h — do not redefine here
 #define SQ(x)           ((x) * (x))
+
+/*============================================================================
+ * ADC HELPER MACROS (VESC compatibility)
+ * ADC_Value[] is the DMA buffer filled by the injected ADC conversions.
+ * ADC_VOLTS converts a raw ADC index to voltage (3.3V / 4095).
+ *============================================================================*/
+extern volatile uint16_t ADC_Value[];
+#undef ADC_VOLTS
+#define ADC_VOLTS(ch)      ((float)ADC_Value[(ch)] / 4095.0f * 3.3f)
+
+#ifndef ADC_IND_EXT
+#define ADC_IND_EXT        0
+#endif
+#ifndef ADC_IND_EXT2
+#define ADC_IND_EXT2       1
+#endif
+
+/*============================================================================
+ * I2C STUBS (no I2C peripheral used on hoverboard, stubs for VESC compat)
+ *============================================================================*/
+typedef uint8_t i2caddr_t;
+
+/* Dummy I2C device handle */
+#include "stm32f1xx_hal.h"
+extern I2C_HandleTypeDef hi2c1;
+#define HW_I2C_DEV         hi2c1
+
+static inline void hw_start_i2c(void) { /* no-op */ }
+static inline void hw_stop_i2c(void) { /* no-op */ }
+static inline void hw_try_restore_i2c(void) { /* no-op */ }
+
+static inline void i2cAcquireBus(void *dev) { (void)dev; }
+static inline void i2cReleaseBus(void *dev) { (void)dev; }
+static inline int32_t i2cMasterTransmitTimeout(void *dev, i2caddr_t addr,
+    const uint8_t *txbuf, size_t txlen, uint8_t *rxbuf, size_t rxlen, uint32_t tmo) {
+    (void)dev; (void)addr; (void)txbuf; (void)txlen; (void)rxbuf; (void)rxlen; (void)tmo;
+    return 0; /* MSG_OK */
+}
+static inline int32_t i2cMasterReceiveTimeout(void *dev, i2caddr_t addr,
+    uint8_t *rxbuf, size_t rxlen, uint32_t tmo) {
+    (void)dev; (void)addr; (void)rxbuf; (void)rxlen; (void)tmo;
+    return 0; /* MSG_OK */
+}
+
+/*============================================================================
+ * CAN CONFIGURATION (stubs for F103 hoverboard - CAN not used)
+ *============================================================================*/
+#ifndef HW_CAN_DEV
+#define HW_CAN_DEV         hcan1
+#endif
+
+#ifndef HW_CANRX_PORT
+#define HW_CANRX_PORT      GPIOA
+#endif
+
+#ifndef HW_CANRX_PIN
+#define HW_CANRX_PIN       GPIO_PIN_11
+#endif
+
+#ifndef HW_CANTX_PORT
+#define HW_CANTX_PORT      GPIOA
+#endif
+
+#ifndef HW_CANTX_PIN
+#define HW_CANTX_PIN       GPIO_PIN_12
+#endif
+
+#ifndef HW_CAN_GPIO_AF
+#define HW_CAN_GPIO_AF     GPIO_AF_CAN1
+#endif
+
+#ifndef ADC_IND_EXT3
+#define ADC_IND_EXT3       ADC_IND_EXT
+#endif
+
+/*============================================================================
+ * EXTERNAL PERIPHERAL HANDLES (defined in hw_setup.c)
+ *============================================================================*/
+extern CAN_HandleTypeDef hcan1;
+extern UART_HandleTypeDef huart3;
+extern ADC_HandleTypeDef hadc1;
+extern ADC_HandleTypeDef hadc2;
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim8;
+extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim4;
 
 /*============================================================================
  * FUNCTION PROTOTYPES  (hw_setup.c)
@@ -378,6 +705,76 @@ void MX_IWDG_Init(void);
 
 /* Timer start helper */
 void startTimers(void);
+
+/*============================================================================
+ * F1 HAL NAME ALIASES for VESC motor control code
+ * These are direct register-value name mappings (not a compat layer).
+ * VESC code uses STM32F4 StdPeriph naming; F1 HAL uses different names
+ * for the same register bit values.
+ *============================================================================*/
+
+/* Timer channel constants (VESC uses TIM_Channel_x) */
+#define TIM_Channel_1               TIM_CHANNEL_1
+#define TIM_Channel_2               TIM_CHANNEL_2
+#define TIM_Channel_3               TIM_CHANNEL_3
+#define TIM_Channel_4               TIM_CHANNEL_4
+
+/* Timer OC mode */
+#define TIM_OCMode_PWM1             TIM_OCMODE_PWM1
+#define TIM_OCMode_PWM2             TIM_OCMODE_PWM2
+#define TIM_OCMode_Inactive         TIM_OCMODE_INACTIVE
+#define TIM_ForcedAction_InActive   TIM_OCMODE_FORCED_INACTIVE
+#define TIM_ForcedAction_Active     TIM_OCMODE_FORCED_ACTIVE
+
+/* Timer CC enable/disable */
+#define TIM_CCx_Enable              TIM_CCx_ENABLE
+#define TIM_CCx_Disable             TIM_CCx_DISABLE
+#define TIM_CCxN_Enable             TIM_CCxN_ENABLE
+#define TIM_CCxN_Disable            TIM_CCxN_DISABLE
+
+/* Timer event source */
+#define TIM_EventSource_COM         TIM_EVENTSOURCE_COM
+#define TIM_EventSource_Update      TIM_EVENTSOURCE_UPDATE
+
+/* DMA stream mapping (F4 DMA2_Stream4 → F1 DMA1_Channel1 for ADC) */
+#define DMA2_Stream4                DMA1_Channel1
+
+/* ADC IRQ (F103 uses ADC1_2_IRQn) */
+#define ADC_IRQn                    ADC1_2_IRQn
+
+/* MCCONF defaults not in conf_general.h */
+#ifndef MCCONF_MAX_CURRENT_UNBALANCE
+#define MCCONF_MAX_CURRENT_UNBALANCE       130.0
+#endif
+#ifndef MCCONF_MAX_CURRENT_UNBALANCE_RATE
+#define MCCONF_MAX_CURRENT_UNBALANCE_RATE  0.3
+#endif
+
+/*--- Inline wrappers for VESC timer control functions (direct register ops) ---*/
+static inline void TIM_SelectOCxM(TIM_TypeDef *TIMx, uint16_t ch, uint16_t mode) {
+    if (ch == TIM_CHANNEL_1) { TIMx->CCMR1 = (TIMx->CCMR1 & ~TIM_CCMR1_OC1M) | (mode & TIM_CCMR1_OC1M); }
+    else if (ch == TIM_CHANNEL_2) { TIMx->CCMR1 = (TIMx->CCMR1 & ~TIM_CCMR1_OC2M) | ((mode & TIM_CCMR1_OC1M) << 8); }
+    else if (ch == TIM_CHANNEL_3) { TIMx->CCMR2 = (TIMx->CCMR2 & ~TIM_CCMR2_OC3M) | (mode & TIM_CCMR2_OC3M); }
+    else if (ch == TIM_CHANNEL_4) { TIMx->CCMR2 = (TIMx->CCMR2 & ~TIM_CCMR2_OC4M) | ((mode & TIM_CCMR2_OC3M) << 8); }
+}
+static inline void TIM_CCxCmd(TIM_TypeDef *TIMx, uint16_t ch, uint16_t state) {
+    uint32_t tmp = 0;
+    if (ch == TIM_CHANNEL_1) tmp = TIM_CCER_CC1E;
+    else if (ch == TIM_CHANNEL_2) tmp = TIM_CCER_CC2E;
+    else if (ch == TIM_CHANNEL_3) tmp = TIM_CCER_CC3E;
+    else if (ch == TIM_CHANNEL_4) tmp = TIM_CCER_CC4E;
+    if (state == TIM_CCx_ENABLE) TIMx->CCER |= tmp; else TIMx->CCER &= ~tmp;
+}
+static inline void TIM_CCxNCmd(TIM_TypeDef *TIMx, uint16_t ch, uint16_t state) {
+    uint32_t tmp = 0;
+    if (ch == TIM_CHANNEL_1) tmp = TIM_CCER_CC1NE;
+    else if (ch == TIM_CHANNEL_2) tmp = TIM_CCER_CC2NE;
+    else if (ch == TIM_CHANNEL_3) tmp = TIM_CCER_CC3NE;
+    if (state == TIM_CCxN_ENABLE) TIMx->CCER |= tmp; else TIMx->CCER &= ~tmp;
+}
+static inline void TIM_GenerateEvent(TIM_TypeDef *TIMx, uint16_t src) {
+    TIMx->EGR = src;
+}
 
 #ifdef __cplusplus
 }

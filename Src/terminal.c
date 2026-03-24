@@ -105,30 +105,12 @@ __attribute__((section(".text2"))) void terminal_process_string(char *str) {
 	} else if (strcmp(argv[0], "kv") == 0) {
 		commands_printf("Calculated KV: %.2f rpm/volt\n", (double)mcpwm_get_kv_filtered());
 	} else if (strcmp(argv[0], "mem") == 0) {
-		size_t n, size;
-		n = chHeapStatus(NULL, &size);
-		commands_printf("core free memory : %u bytes", chCoreGetStatusX());
-		commands_printf("heap fragments   : %u", n);
-		commands_printf("heap free total  : %u bytes\n", size);
+		commands_printf("FreeRTOS free heap : %u bytes", (unsigned int)xPortGetFreeHeapSize());
+		commands_printf("FreeRTOS min ever  : %u bytes\n", (unsigned int)xPortGetMinimumEverFreeHeapSize());
 	} else if (strcmp(argv[0], "threads") == 0) {
-		thread_t *tp;
-		static const char *states[] = {CH_STATE_NAMES};
-		static systime_t last_check_time = 0;
-		commands_printf("    addr    stack prio refs     state           name motor stackmin  time    ");
-		commands_printf("-----------------------------------------------------------------------------");
-		tp = chRegFirstThread();
-		do {
-			int stack_left = utils_check_min_stack_left(tp);
-			commands_printf("%.8lx %.8lx %4lu %4lu %9s %14s %5lu %8d  %lu (%.1f %%)",
-					(uint32_t)tp, (uint32_t)tp->p_ctx.r13,
-					(uint32_t)tp->p_prio, (uint32_t)(tp->p_refs - 1),
-					states[tp->p_state], tp->p_name, tp->motor_selected, stack_left, (uint32_t)tp->p_time,
-					(double)(100.0 * (float)tp->p_time / (float)(chVTGetSystemTimeX() - last_check_time)));
-			tp->p_time = 0;
-			tp = chRegNextThread(tp);
-		} while (tp != NULL);
-		last_check_time = chVTGetSystemTimeX();
-		commands_printf(" ");
+		commands_printf("FreeRTOS task list:");
+		commands_printf("  Number of tasks: %lu", (uint32_t)uxTaskGetNumberOfTasks());
+		commands_printf("  Free heap: %u bytes\n", (unsigned int)xPortGetFreeHeapSize());
 	} else if (strcmp(argv[0], "fault") == 0) {
 		commands_printf("%s\n", mc_interface_fault_to_string(mc_interface_get_fault()));
 	} else if (strcmp(argv[0], "faults") == 0) {

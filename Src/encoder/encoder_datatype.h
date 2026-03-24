@@ -29,18 +29,13 @@
 // GPIO structure typedef (compatible with HAL GPIO port definitions)
 typedef GPIO_TypeDef stm32_gpio_t;
 
-// ==== ChibiOS-type compatibility (used by legacy encoder configs) ====
-// The migrated codebase is moving away from these; for now map them onto HAL types
-// so we can build and iterate driver conversions incrementally.
+// ==== ChibiOS-type compatibility ====
+#include "ch.h"
+
 typedef SPI_HandleTypeDef SPIDriver;
 typedef struct {
 	uint32_t dummy;
 } SPIConfig;
-
-typedef UART_HandleTypeDef SerialDriver;
-typedef struct {
-	uint32_t dummy;
-} SerialConfig;
 
 typedef StackType_t stkalign_t;
 

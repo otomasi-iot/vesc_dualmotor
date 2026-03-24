@@ -20,12 +20,14 @@
 #pragma GCC optimize ("Os")
 
 #include "app.h"
-#include "ch.h"
-#include "hal.h"
-#include "hw.h"
+#include "stm32f1xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include "packet.h"
 #include "commands.h"
-#include "hwconf/hal_gpio.h"
+#include "mc_interface.h"
+#include "timeout.h"
+#include "comm_can.h"
 
 // Settings
 

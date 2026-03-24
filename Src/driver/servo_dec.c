@@ -20,7 +20,7 @@
 #pragma GCC optimize ("Os")
 
 #include "servo_dec.h"
-#include "stm32f4xx_conf.h"
+#include "stm32f1xx_hal.h"
 #include "ch.h"
 #include "hal.h"
 #include "hw.h"
@@ -43,65 +43,50 @@ static volatile bool is_running = false;
 // Function pointers
 static void(*done_func)(void) = 0;
 
-static void icuwidthcb(ICUDriver *icup) {
-	float len_received = ((float)icuGetWidthX(icup) / ((float)TIMER_FREQ / 1000.0));
-#ifndef HW_VALIDATE_SERVO_INPUT
-	last_len_received[0] = len_received;
-#endif
-	float len = len_received - pulse_start;
-	const float len_set = (pulse_end - pulse_start);
+// PPM pulse width measurement state (F1 HAL Input Capture on TIM2_CH2)
+static volatile uint32_t ic_rise = 0;
+static volatile uint32_t ic_width = 0;
 
-	if (len > len_set) {
-		if (len < (len_set * 1.5)) {
-			len = len_set;
-		} else {
-			// Too long pulse. Most likely something is wrong.
-			len = -1.0;
-		}
-	} else if (len < 0.0) {
-		if ((len + pulse_start) > (pulse_start * 0.8)) {
-			len = 0.0;
-		} else {
-			// Too short pulse. Most likely something is wrong.
-			len = -1.0;
-		}
-	}
+void servodec_ic_callback(uint32_t capture_val) {
+	static bool got_rise = false;
+	if (!got_rise) {
+		ic_rise = capture_val;
+		got_rise = true;
+	} else {
+		ic_width = capture_val - ic_rise;
+		got_rise = false;
 
-	if (len >= 0.0) {
-		if (use_median_filter) {
-			float c = (len * 2.0 - len_set) / len_set;
-			static float c1 = 0.5;
-			static float c2 = 0.5;
-			float med = utils_middle_of_3(c, c1, c2);
+		float len_received = (float)ic_width / ((float)TIMER_FREQ / 1000.0f);
+		last_len_received[0] = len_received;
+		float len = len_received - pulse_start;
+		const float len_set = (pulse_end - pulse_start);
 
-			c2 = c1;
-			c1 = c;
-
-			servo_pos[0] = med;
-		} else {
-			servo_pos[0] = (len * 2.0 - len_set) / len_set;
+		if (len > len_set) {
+			len = (len < (len_set * 1.5f)) ? len_set : -1.0f;
+		} else if (len < 0.0f) {
+			len = ((len + pulse_start) > (pulse_start * 0.8f)) ? 0.0f : -1.0f;
 		}
 
-#ifdef HW_VALIDATE_SERVO_INPUT
-		last_len_received[0] = len_received; // Stop noisy lengths from going to vesc tool
-#endif
-		last_update_time = chVTGetSystemTimeX();
+		if (len >= 0.0f) {
+			if (use_median_filter) {
+				float c = (len * 2.0f - len_set) / len_set;
+				static float c1 = 0.5f;
+				static float c2 = 0.5f;
+				float med = utils_middle_of_3(c, c1, c2);
+				c2 = c1;
+				c1 = c;
+				servo_pos[0] = med;
+			} else {
+				servo_pos[0] = (len * 2.0f - len_set) / len_set;
+			}
 
-		if (done_func) {
-			done_func();
+			last_update_time = chVTGetSystemTimeX();
+			if (done_func) {
+				done_func();
+			}
 		}
 	}
 }
-
-static ICUConfig icucfg = {
-		ICU_INPUT_ACTIVE_HIGH,
-		TIMER_FREQ,
-		icuwidthcb,
-		NULL,
-		NULL,
-		HW_ICU_CHANNEL,
-		0
-};
 
 /**
  * Initialize the serve decoding driver.
@@ -111,18 +96,18 @@ static ICUConfig icucfg = {
  * decoded. Can be NULL.
  */
 void servodec_init(void (*d_func)(void)) {
-	icuStart(&HW_ICU_DEV, &icucfg);
-	hal_gpio_init_af(HW_ICU_GPIO, HW_ICU_PIN, HW_ICU_GPIO_AF);
-	icuStartCapture(&HW_ICU_DEV);
-	icuEnableNotifications(&HW_ICU_DEV);
+	extern TIM_HandleTypeDef htim2;
 
 	for (int i = 0;i < SERVO_NUM;i++) {
 		servo_pos[i] = 0.0;
 		last_len_received[i] = 0.0;
 	}
 
-	// Set our function pointer
 	done_func = d_func;
+
+	// TIM2_CH2 Input Capture is already initialized in MX_TIM2_Init (hw_setup.c)
+	// Start input capture with interrupt on CH2
+	HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_2);
 
 	is_running = true;
 }
@@ -132,9 +117,8 @@ void servodec_init(void (*d_func)(void)) {
  */
 void servodec_stop(void) {
 	if (is_running) {
-		icuStopCapture(&HW_ICU_DEV);
-		icuStop(&HW_ICU_DEV);
-		hal_gpio_init_input(HW_ICU_GPIO, HW_ICU_PIN);
+		extern TIM_HandleTypeDef htim2;
+		HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_2);
 		pulse_start = 1.0;
 		pulse_end = 2.0;
 		use_median_filter = false;

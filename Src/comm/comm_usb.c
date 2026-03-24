@@ -128,9 +128,9 @@ void comm_usb_init(void) {
 }
 
 void comm_usb_send_packet(unsigned char *data, unsigned int len) {
-	osMutexAcquire(&send_mutex);
+	osMutexAcquire(send_mutex, osWaitForever);
 	packet_send_packet(data, len, &packet_state);
-	osMutexRelease(&send_mutex);
+	osMutexRelease(send_mutex);
 }
 
 unsigned int comm_usb_get_write_timeout_cnt(void) {

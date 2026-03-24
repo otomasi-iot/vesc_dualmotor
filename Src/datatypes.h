@@ -22,7 +22,10 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "ch.h"
+#include "cmsis_os.h"
+
+// ChibiOS compatibility types
+typedef uint32_t systime_t;
 
 // Data types
 typedef enum {
@@ -64,7 +67,8 @@ typedef enum {
 	FOC_SENSOR_MODE_HFI_V2,
 	FOC_SENSOR_MODE_HFI_V3,
 	FOC_SENSOR_MODE_HFI_V4,
-	FOC_SENSOR_MODE_HFI_V5
+	FOC_SENSOR_MODE_HFI_V5,
+	FOC_SENSOR_MODE_ENCODER_AB
 } mc_foc_sensor_mode;
 
 typedef enum {

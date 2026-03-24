@@ -20,6 +20,17 @@ typedef GPIO_TypeDef stm32_gpio_t;
 typedef uint32_t stkalign_t;
 typedef uint32_t eventmask_t;
 
+// Event listener stub for serial events
+typedef struct {
+    eventmask_t mask;
+    uint32_t flags;
+} event_listener_t;
+
+// Event source stub
+typedef struct {
+    int dummy;
+} event_source_t;
+
 #ifndef STM32_UUID_8
 #define STM32_UUID_8 ((const uint8_t *)0x1FFFF7E8)
 #endif
@@ -42,6 +53,10 @@ typedef uint32_t eventmask_t;
 
 #ifndef TIME_IMMEDIATE
 #define TIME_IMMEDIATE   0
+#endif
+
+#ifndef MSG_OK
+#define MSG_OK           0
 #endif
 
 #ifndef MSG_TIMEOUT
@@ -68,7 +83,17 @@ typedef uint32_t eventmask_t;
 // ============================================
 // THREAD_T COMPATIBILITY
 // ============================================
+// Thread structure with motor selection support
+typedef struct {
+    osThreadId_t handle;
+    int motor_selected;
+} thread_t_struct;
+
 typedef osThreadId_t thread_t;
+
+// Global thread info storage for motor selection
+static thread_t_struct g_thread_info[10] = {0};
+static int g_thread_count = 0;
 
 // ============================================
 // THREAD MACROS
@@ -140,6 +165,24 @@ static inline eventmask_t chEvtWaitAnyTimeout(eventmask_t mask, systime_t timeou
     return got ? mask : 0;
 }
 
+// Event registration stubs (not implemented for FreeRTOS)
+#ifndef EVENT_MASK
+#define EVENT_MASK(n) (1U << (n))
+#endif
+
+#ifndef CHN_INPUT_AVAILABLE
+#define CHN_INPUT_AVAILABLE 1
+#endif
+
+static inline void chEvtRegisterMaskWithFlags(event_source_t *esp, event_listener_t *elp, eventmask_t mask, uint32_t flags) {
+    // Stub: event registration not implemented in FreeRTOS compatibility layer
+    (void)esp;
+    if (elp) {
+        elp->mask = mask;
+        elp->flags = flags;
+    }
+}
+
 // ============================================
 // THREAD TERMINATION COMPAT
 // ============================================
@@ -171,8 +214,20 @@ static inline msg_t chThdWait(thread_t tp) {
 // ============================================
 // THREAD HELPERS
 // ============================================
-static inline thread_t chThdGetSelfX(void) {
-    return osThreadGetId();
+static inline thread_t_struct* chThdGetSelfX(void) {
+    osThreadId_t current = osThreadGetId();
+    for (int i = 0; i < g_thread_count; i++) {
+        if (g_thread_info[i].handle == current) {
+            return &g_thread_info[i];
+        }
+    }
+    // If not found, add new entry
+    if (g_thread_count < 10) {
+        g_thread_info[g_thread_count].handle = current;
+        g_thread_info[g_thread_count].motor_selected = 1; // Default to motor 1
+        return &g_thread_info[g_thread_count++];
+    }
+    return &g_thread_info[0]; // Fallback
 }
 
 static inline void chThdSleepMilliseconds(uint32_t ms) {
@@ -189,6 +244,11 @@ static inline void chThdSleepMicroseconds(uint32_t us) {
     uint32_t ms = us / 1000;
     if (ms == 0) ms = 1;
     osDelay(ms);
+}
+
+static inline void chRegSetThreadName(const char *name) {
+    (void)name;
+    // ChibiOS thread name registration — no-op under FreeRTOS
 }
 
 // ============================================
@@ -241,6 +301,19 @@ static inline void chVTObjectInit(virtual_timer_t *vt) {
 static inline void chVTReset(virtual_timer_t *vt) {
     if (vt && vt->timer) {
         (void)osTimerStop(vt->timer);
+    }
+}
+
+static inline void chVTSetI(virtual_timer_t *vt, systime_t ticks, vtfunc_t cb, void *p) {
+    // ISR-safe alias — delegates to chVTSet (FreeRTOS timers are ISR-safe)
+    if (!vt) return;
+    if (!vt->timer) chVTObjectInit(vt);
+    if (vt->timer) {
+        vt->cb = cb;
+        vt->arg = p;
+        uint32_t ms = ST2MS(ticks);
+        if (ms == 0) ms = 1;
+        (void)osTimerStart(vt->timer, ms);
     }
 }
 
@@ -323,7 +396,7 @@ static inline void chSysUnlockFromISR(void) {
 // ============================================
 // DMA STREAM HELPERS (no-op stubs for F103)
 // ============================================
-#define dmaStreamAllocate(...) 0
+#define dmaStreamAllocate(...) ((void)0)
 #define dmaStreamRelease(...)
 #define STM32_DMA_STREAM(id) (id)
 #define STM32_DMA_STREAM_ID(controller, stream) ((controller)*8 + (stream))
@@ -334,6 +407,7 @@ typedef void (*stm32_dmaisr_t)(void *, uint32_t);
 // ============================================
 typedef struct {
     UART_HandleTypeDef *huart;
+    event_source_t event;
 } SerialDriver;
 
 typedef struct {
@@ -346,6 +420,11 @@ typedef struct {
 // Serial driver stubs - these need actual implementations for boards that use them
 #define sdStart(sd, cfg)     ((void)0)
 #define sdStop(sd)           ((void)0)
+
+static inline size_t sdWrite(SerialDriver *sd, const uint8_t *bp, size_t n) {
+    (void)sd; (void)bp;
+    return n; // stub
+}
 
 static inline size_t sdWriteTimeout(SerialDriver *sd, const uint8_t *bp, size_t n, systime_t timeout) {
     (void)sd; (void)bp; (void)timeout;
@@ -361,6 +440,22 @@ static inline int sdGetTimeout(SerialDriver *sd, systime_t timeout) {
     (void)sd; (void)timeout;
     return MSG_TIMEOUT;
 }
+
+// ============================================
+// USB SERIAL DRIVER STUBS (not supported on F103 hoverboard)
+// ============================================
+typedef struct {
+    int dummy;
+} SerialUSBDriver;
+
+typedef struct {
+    const uint8_t *ud_string;
+    uint16_t ud_size;
+} USBDescriptor;
+
+typedef struct {
+    int dummy;
+} USBDriver;
 
 #endif /* CH_H_ */
 

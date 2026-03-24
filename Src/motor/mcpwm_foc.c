@@ -23,12 +23,11 @@
 
 #include "mcpwm_foc.h"
 #include "mc_interface.h"
-#include "cmsis_os2.h"
+#include "ch.h"
 #include "hal.h"
-#include "hwconf/hal_gpio.h"
 #include "stm32f1xx_hal.h"
-#include "stm32f1xx_ll_tim.h"
-#include "stm32f1xx_ll_dma.h"
+// Direct F1 HAL - no compat layer
+#include "hw_config.h"
 #include "digital_filter.h"
 #include "utils_math.h"
 #include "utils_sys.h"
@@ -45,11 +44,55 @@
 #include "virtual_motor.h"
 #include "foc_math.h"
 
-// HAL handles for timer and DMA peripherals
-TIM_HandleTypeDef htim1;
-TIM_HandleTypeDef htim8;
-TIM_HandleTypeDef htim2;
-DMA_HandleTypeDef hdma_adc;
+// Forward declarations for functions defined in app_stubs.c or other modules
+extern void hw_setup_adc_channels(void);
+extern ADC_HandleTypeDef hadc1, hadc2;
+extern DMA_HandleTypeDef hdma_adc;
+
+/*--- Direct F1 register helpers (replacing stm32f4_compat layer) ---*/
+static inline void f1_tim_deinit(TIM_TypeDef *TIMx) {
+	if (TIMx == TIM1) { RCC->APB2RSTR |= RCC_APB2RSTR_TIM1RST; RCC->APB2RSTR &= ~RCC_APB2RSTR_TIM1RST; }
+	else if (TIMx == TIM2) { RCC->APB1RSTR |= RCC_APB1RSTR_TIM2RST; RCC->APB1RSTR &= ~RCC_APB1RSTR_TIM2RST; }
+	else if (TIMx == TIM8) { RCC->APB2RSTR |= RCC_APB2RSTR_TIM8RST; RCC->APB2RSTR &= ~RCC_APB2RSTR_TIM8RST; }
+}
+static inline void f1_tim_timebase(TIM_TypeDef *TIMx, uint16_t prescaler, uint16_t countermode, uint32_t period, uint16_t clockdiv, uint8_t repcnt) {
+	TIMx->PSC = prescaler; TIMx->ARR = period; TIMx->CR1 = (TIMx->CR1 & ~(TIM_CR1_DIR | TIM_CR1_CMS | TIM_CR1_CKD)) | countermode | clockdiv;
+	TIMx->RCR = repcnt; TIMx->EGR = TIM_EGR_UG;
+}
+static inline void f1_tim_oc_init(TIM_TypeDef *TIMx, uint32_t ch, uint32_t mode, uint32_t pulse, uint32_t polarity, uint32_t npolarity, uint32_t idlestate, uint32_t nidlestate) {
+	switch(ch) {
+	case 1: TIMx->CCR1 = pulse; TIMx->CCMR1 = (TIMx->CCMR1 & ~(TIM_CCMR1_OC1M|TIM_CCMR1_CC1S)) | mode;
+		TIMx->CCER = (TIMx->CCER & ~(TIM_CCER_CC1E|TIM_CCER_CC1P|TIM_CCER_CC1NE|TIM_CCER_CC1NP)) | TIM_CCER_CC1E | TIM_CCER_CC1NE | polarity | npolarity;
+		TIMx->CR2 = (TIMx->CR2 & ~(TIM_CR2_OIS1|TIM_CR2_OIS1N)) | idlestate | nidlestate; break;
+	case 2: TIMx->CCR2 = pulse; TIMx->CCMR1 = (TIMx->CCMR1 & ~(TIM_CCMR1_OC2M|TIM_CCMR1_CC2S)) | (mode << 8);
+		TIMx->CCER = (TIMx->CCER & ~(TIM_CCER_CC2E|TIM_CCER_CC2P|TIM_CCER_CC2NE|TIM_CCER_CC2NP)) | TIM_CCER_CC2E | TIM_CCER_CC2NE | (polarity << 4) | (npolarity << 4);
+		TIMx->CR2 = (TIMx->CR2 & ~(TIM_CR2_OIS2|TIM_CR2_OIS2N)) | (idlestate << 2) | (nidlestate << 2); break;
+	case 3: TIMx->CCR3 = pulse; TIMx->CCMR2 = (TIMx->CCMR2 & ~(TIM_CCMR2_OC3M|TIM_CCMR2_CC3S)) | mode;
+		TIMx->CCER = (TIMx->CCER & ~(TIM_CCER_CC3E|TIM_CCER_CC3P|TIM_CCER_CC3NE|TIM_CCER_CC3NP)) | TIM_CCER_CC3E | TIM_CCER_CC3NE | (polarity << 8) | (npolarity << 8);
+		TIMx->CR2 = (TIMx->CR2 & ~(TIM_CR2_OIS3|TIM_CR2_OIS3N)) | (idlestate << 4) | (nidlestate << 4); break;
+	case 4: TIMx->CCR4 = pulse; TIMx->CCMR2 = (TIMx->CCMR2 & ~(TIM_CCMR2_OC4M|TIM_CCMR2_CC4S)) | (mode << 8);
+		TIMx->CCER = (TIMx->CCER & ~(TIM_CCER_CC4E|TIM_CCER_CC4P)) | TIM_CCER_CC4E | (polarity << 12);
+		TIMx->CR2 = (TIMx->CR2 & ~TIM_CR2_OIS4) | (idlestate << 6); break;
+	}
+}
+static inline void f1_tim_oc_preload(TIM_TypeDef *TIMx, uint32_t ch, int en) {
+	switch(ch) {
+	case 1: if(en) TIMx->CCMR1 |= TIM_CCMR1_OC1PE; else TIMx->CCMR1 &= ~TIM_CCMR1_OC1PE; break;
+	case 2: if(en) TIMx->CCMR1 |= TIM_CCMR1_OC2PE; else TIMx->CCMR1 &= ~TIM_CCMR1_OC2PE; break;
+	case 3: if(en) TIMx->CCMR2 |= TIM_CCMR2_OC3PE; else TIMx->CCMR2 &= ~TIM_CCMR2_OC3PE; break;
+	case 4: if(en) TIMx->CCMR2 |= TIM_CCMR2_OC4PE; else TIMx->CCMR2 &= ~TIM_CCMR2_OC4PE; break;
+	}
+}
+static inline void f1_tim_bdtr(TIM_TypeDef *TIMx, uint32_t ossr, uint32_t ossi, uint32_t lock, uint32_t deadtime, uint32_t brk, uint32_t brkpol, uint32_t aoe) {
+	TIMx->BDTR = deadtime | lock | ossi | ossr | brk | brkpol | aoe;
+}
+static inline void f1_adc_deinit(void) {
+	RCC->APB2RSTR |= RCC_APB2RSTR_ADC1RST | RCC_APB2RSTR_ADC2RST;
+	RCC->APB2RSTR &= ~(RCC_APB2RSTR_ADC1RST | RCC_APB2RSTR_ADC2RST);
+}
+static inline void f1_dma_ch_deinit(DMA_Channel_TypeDef *ch) {
+	ch->CCR &= ~DMA_CCR_EN; ch->CCR = 0; ch->CNDTR = 0; ch->CPAR = 0; ch->CMAR = 0;
+}
 
 // Private variables
 static volatile bool m_dccal_done = false;
@@ -70,20 +113,17 @@ static void terminal_plot_hfi(int argc, const char **argv);
 static void timer_update(motor_all_state_t *motor, float dt);
 static void hfi_update(volatile motor_all_state_t *motor, float dt);
 
-// Threads — CMSIS-RTOS2 / FreeRTOS static allocation
+// Threads
+static THD_WORKING_AREA(timer_thread_wa, 512);
 static THD_FUNCTION(timer_thread, arg);
-static StaticTask_t foc_timer_thread_tcb;
-static StackType_t foc_timer_thread_stack[512];
 static volatile bool timer_thd_stop;
 
+static THD_WORKING_AREA(hfi_thread_wa, 512);
 static THD_FUNCTION(hfi_thread, arg);
-static StaticTask_t foc_hfi_thread_tcb;
-static StackType_t foc_hfi_thread_stack[512];
 static volatile bool hfi_thd_stop;
 
+static THD_WORKING_AREA(pid_thread_wa, 256);
 static THD_FUNCTION(pid_thread, arg);
-static StaticTask_t foc_pid_thread_tcb;
-static StackType_t foc_pid_thread_stack[256];
 static volatile bool pid_thd_stop;
 
 // Macros
@@ -181,158 +221,91 @@ static void update_hfi_samples(foc_hfi_samples samples, volatile motor_all_state
 static void timer_reinit(int f_zv) {
 	utils_sys_lock_cnt();
 
-	uint32_t top = SYSTEM_CORE_CLOCK / f_zv;
+	f1_tim_deinit(TIM1);
+	f1_tim_deinit(TIM8);
+	f1_tim_deinit(TIM2);
 
-	// ===== TIM1: Motor 1 PWM (center-aligned) =====
-	__HAL_RCC_TIM1_CLK_ENABLE();
+	TIM1->CNT = 0;
+	TIM2->CNT = 0;
+	TIM8->CNT = 0;
 
-	htim1.Instance = TIM1;
-	htim1.Init.Prescaler = 0;
-	htim1.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED1;
-	htim1.Init.Period = top;
-	htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-	htim1.Init.RepetitionCounter = 0;
-	htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-	HAL_TIM_PWM_Init(&htim1);
+	RCC->APB2ENR |= RCC_APB2ENR_TIM1EN | RCC_APB2ENR_TIM8EN;
 
-	TIM_OC_InitTypeDef sConfigOC = {0};
-	sConfigOC.OCMode = TIM_OCMODE_PWM1;
-	sConfigOC.Pulse = TIM1->ARR / 2;
-#ifndef INVERTED_TOP_DRIVER_INPUT
-	sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-#else
-	sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
+	uint32_t period = (SYSTEM_CORE_CLOCK / f_zv);
+	f1_tim_timebase(TIM1, 0, TIM_CR1_CMS_0, period, 0, 0);
+	f1_tim_timebase(TIM8, 0, TIM_CR1_CMS_0, period, 0, 0);
+
+	uint32_t pulse = TIM1->ARR / 2;
+	uint32_t pol = 0;     // High polarity (no CC1P bit)
+	uint32_t npol = 0;    // High N polarity
+	uint32_t idle = TIM_CR2_OIS1;   // Idle state set
+	uint32_t nidle = TIM_CR2_OIS1N; // N idle state set
+#ifdef INVERTED_TOP_DRIVER_INPUT
+	pol = TIM_CCER_CC1P;  // Low polarity
 #endif
-	sConfigOC.OCIdleState = TIM_OCIDLESTATE_SET;
-#ifndef INVERTED_BOTTOM_DRIVER_INPUT
-	sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-#else
-	sConfigOC.OCNPolarity = TIM_OCNPOLARITY_LOW;
+#ifdef INVERTED_BOTTOM_DRIVER_INPUT
+	npol = TIM_CCER_CC1NP;
 #endif
-	sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_SET;
-	sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
-	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1);
-	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2);
-	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3);
-	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4);
+	for (uint32_t ch = 1; ch <= 4; ch++) {
+		f1_tim_oc_init(TIM1, ch, TIM_CCMR1_OC1M_2 | TIM_CCMR1_OC1M_1, pulse, pol, npol, idle, nidle);
+		f1_tim_oc_preload(TIM1, ch, 1);
+		f1_tim_oc_init(TIM8, ch, TIM_CCMR1_OC1M_2 | TIM_CCMR1_OC1M_1, pulse, pol, npol, idle, nidle);
+		f1_tim_oc_preload(TIM8, ch, 1);
+	}
 
-	// Enable OC preload on all channels
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim1, TIM_CHANNEL_1);
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim1, TIM_CHANNEL_2);
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim1, TIM_CHANNEL_3);
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim1, TIM_CHANNEL_4);
-
-	// Break and dead-time configuration
-	TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
-	sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_ENABLE;
-	sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_ENABLE;
-	sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-	sBreakDeadTimeConfig.DeadTime = conf_general_calculate_deadtime(HW_DEAD_TIME_NSEC, SYSTEM_CORE_CLOCK);
-	sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+	uint32_t deadtime = conf_general_calculate_deadtime(HW_DEAD_TIME_NSEC, SYSTEM_CORE_CLOCK);
+	uint32_t brk = 0, brkpol = 0;
 #ifdef HW_USE_BRK
-	sBreakDeadTimeConfig.BreakState = TIM_BREAK_ENABLE;
+	brk = TIM_BDTR_BKE;
 	#ifdef BRK_HIGH
-	sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-	#else
-	sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_LOW;
+	brkpol = TIM_BDTR_BKP;
 	#endif
 #else
-	sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-	#ifdef BRK_HIGH
-	sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_LOW;
-	#else
-	sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+	#ifndef BRK_HIGH
+	brkpol = TIM_BDTR_BKP;
 	#endif
 #endif
-	HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig);
 
-	// Enable CC preload control
+	f1_tim_bdtr(TIM1, TIM_BDTR_OSSR, TIM_BDTR_OSSI, 0, deadtime, brk, brkpol, 0);
 	TIM1->CR2 |= TIM_CR2_CCPC;
+	TIM1->CR1 |= TIM_CR1_ARPE;
 
-	// ===== TIM8: Motor 2 PWM (center-aligned) =====
-	__HAL_RCC_TIM8_CLK_ENABLE();
-
-	htim8.Instance = TIM8;
-	htim8.Init.Prescaler = 0;
-	htim8.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED1;
-	htim8.Init.Period = top;
-	htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-	htim8.Init.RepetitionCounter = 0;
-	htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-	HAL_TIM_PWM_Init(&htim8);
-
-	HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_1);
-	HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_2);
-	HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_3);
-	HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_4);
-
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim8, TIM_CHANNEL_1);
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim8, TIM_CHANNEL_2);
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim8, TIM_CHANNEL_3);
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim8, TIM_CHANNEL_4);
-
-	HAL_TIMEx_ConfigBreakDeadTime(&htim8, &sBreakDeadTimeConfig);
+	f1_tim_bdtr(TIM8, TIM_BDTR_OSSR, TIM_BDTR_OSSI, 0, deadtime, brk, brkpol, 0);
 	TIM8->CR2 |= TIM_CR2_CCPC;
+	TIM8->CR1 |= TIM_CR1_ARPE;
 
-	// ===== TIM2: ADC trigger timer (up-counting) =====
-	__HAL_RCC_TIM2_CLK_ENABLE();
+	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
 
-	htim2.Instance = TIM2;
-	htim2.Init.Prescaler = 0;
-	htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-	htim2.Init.Period = 0xFFFF;
-	htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-	htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-	HAL_TIM_PWM_Init(&htim2);
-
-	TIM_OC_InitTypeDef sConfigOC_TIM2 = {0};
-	sConfigOC_TIM2.OCMode = TIM_OCMODE_PWM1;
-	sConfigOC_TIM2.Pulse = 250;
-	sConfigOC_TIM2.OCPolarity = TIM_OCPOLARITY_HIGH;
-	sConfigOC_TIM2.OCFastMode = TIM_OCFAST_DISABLE;
-
-	HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC_TIM2, TIM_CHANNEL_1);
-	HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC_TIM2, TIM_CHANNEL_2);
-	HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC_TIM2, TIM_CHANNEL_3);
-
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim2, TIM_CHANNEL_1);
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim2, TIM_CHANNEL_2);
-	__HAL_TIM_ENABLE_OCxPRELOAD(&htim2, TIM_CHANNEL_3);
-
-	// TIM2 CC preload + PWM outputs for ADC triggering
+	f1_tim_timebase(TIM2, 0, 0, 0xFFFF, 0, 0);
+	for (uint32_t ch = 1; ch <= 3; ch++) {
+		f1_tim_oc_init(TIM2, ch, TIM_CCMR1_OC1M_2 | TIM_CCMR1_OC1M_1, 250, 0, 0, TIM_CR2_OIS1, TIM_CR2_OIS1N);
+		f1_tim_oc_preload(TIM2, ch, 1);
+	}
+	TIM2->CR1 |= TIM_CR1_ARPE;
 	TIM2->CR2 |= TIM_CR2_CCPC;
-	__HAL_TIM_MOE_ENABLE(&htim2);
+	TIM2->BDTR |= TIM_BDTR_MOE; // Enable PWM outputs for ADC trigger
 
-	// ===== Master-Slave Synchronization =====
 #if defined HW_HAS_DUAL_MOTORS || defined HW_HAS_DUAL_PARALLEL
-	// TIM1 master -> TIM8 slave (trigger), TIM8 master -> TIM2 slave (reset)
-	LL_TIM_SetTriggerOutput(TIM1, LL_TIM_TRGO_ENABLE);
-	LL_TIM_EnableMasterSlaveMode(TIM1);
-	LL_TIM_SetTriggerInput(TIM8, LL_TIM_TS_ITR0);
-	LL_TIM_SetSlaveMode(TIM8, LL_TIM_SLAVEMODE_TRIGGER);
-	LL_TIM_SetTriggerOutput(TIM8, LL_TIM_TRGO_UPDATE);
-	LL_TIM_SetTriggerInput(TIM2, LL_TIM_TS_ITR1);
-	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_RESET);
+	TIM1->CR2 = (TIM1->CR2 & ~TIM_CR2_MMS) | TIM_CR2_MMS_0; // TRGO = Enable
+	TIM1->SMCR |= TIM_SMCR_MSM;
+	TIM8->SMCR = (TIM8->SMCR & ~(TIM_SMCR_TS | TIM_SMCR_SMS)) | 0x0000 | TIM_SMCR_SMS_2 | TIM_SMCR_SMS_1; // ITR0, Trigger mode
+	TIM8->CR2 = (TIM8->CR2 & ~TIM_CR2_MMS) | TIM_CR2_MMS_1; // TRGO = Update
+	TIM2->SMCR = (TIM2->SMCR & ~(TIM_SMCR_TS | TIM_SMCR_SMS)) | TIM_SMCR_TS_0 | TIM_SMCR_SMS_2; // ITR1, Reset mode
 #else
-	// TIM1 master -> TIM2 slave (reset)
-	LL_TIM_SetTriggerOutput(TIM1, LL_TIM_TRGO_UPDATE);
-	LL_TIM_EnableMasterSlaveMode(TIM1);
-	LL_TIM_SetTriggerInput(TIM2, LL_TIM_TS_ITR0);
-	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_RESET);
+	TIM1->CR2 = (TIM1->CR2 & ~TIM_CR2_MMS) | TIM_CR2_MMS_1; // TRGO = Update
+	TIM1->SMCR |= TIM_SMCR_MSM;
+	TIM2->SMCR = (TIM2->SMCR & ~(TIM_SMCR_TS | TIM_SMCR_SMS)) | 0x0000 | TIM_SMCR_SMS_2; // ITR0, Reset mode
 #endif
 
-	// Set counter initial values
 #ifdef HW_HAS_DUAL_MOTORS
 	TIM8->CNT = TIM1->ARR;
 #else
 	TIM8->CNT = 0;
 #endif
 	TIM1->CNT = 0;
-
-	// Enable timers
-	LL_TIM_EnableCounter(TIM1);
-	LL_TIM_EnableCounter(TIM2);
+	TIM1->CR1 |= TIM_CR1_CEN;
+	TIM2->CR1 |= TIM_CR1_CEN;
 
 	// Prevent all low side FETs from switching on
 	stop_pwm_hw((motor_all_state_t*)&m_motor_1);
@@ -340,18 +313,16 @@ static void timer_reinit(int f_zv) {
 	stop_pwm_hw((motor_all_state_t*)&m_motor_2);
 #endif
 
-	// Enable main outputs
-	__HAL_TIM_MOE_ENABLE(&htim1);
-	__HAL_TIM_MOE_ENABLE(&htim8);
+	TIM1->BDTR |= TIM_BDTR_MOE;
+	TIM8->BDTR |= TIM_BDTR_MOE;
 
 	TIMER_UPDATE_SAMP(MCPWM_FOC_CURRENT_SAMP_OFFSET);
 
 	// Enable CC2 interrupt, which will be fired in V0 and V7
-	__HAL_TIM_ENABLE_IT(&htim2, TIM_IT_CC2);
+	TIM2->DIER |= TIM_DIER_CC2IE;
 	utils_sys_unlock_cnt();
 
-	HAL_NVIC_SetPriority(TIM2_IRQn, 6, 0);
-	HAL_NVIC_EnableIRQ(TIM2_IRQn);
+	nvicEnableVector(TIM2_IRQn, 6);
 }
 
 static void init_audio_state(volatile mc_audio_state *s) {
@@ -404,87 +375,64 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 
 	virtual_motor_init(conf_m1);
 
-	HAL_TIM_PWM_DeInit(&htim1);
-	HAL_TIM_PWM_DeInit(&htim2);
-	HAL_TIM_PWM_DeInit(&htim8);
+	f1_tim_deinit(TIM1);
+	f1_tim_deinit(TIM2);
+	f1_tim_deinit(TIM8);
 
 	TIM1->CNT = 0;
 	TIM2->CNT = 0;
 	TIM8->CNT = 0;
 
-	// ===== ADC + DMA Configuration (STM32F1 HAL) =====
-	// On F1: ADC1 uses DMA1_Channel1 (no stream concept, no triple mode)
-	// ADC1 = primary with DMA, ADC2 = dual mode simultaneous
-	__HAL_RCC_DMA1_CLK_ENABLE();
-	__HAL_RCC_ADC1_CLK_ENABLE();
-	__HAL_RCC_ADC2_CLK_ENABLE();
-	__HAL_RCC_GPIOA_CLK_ENABLE();
-	__HAL_RCC_GPIOC_CLK_ENABLE();
+	// Enable clocks: DMA1, GPIOA, GPIOC, ADC1, ADC2
+	RCC->AHBENR  |= RCC_AHBENR_DMA1EN;
+	RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_IOPCEN;
+	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN | RCC_APB2ENR_ADC2EN;
 
-	// DMA1 Channel1 for ADC1
-	hdma_adc.Instance = DMA1_Channel1;
-	hdma_adc.Init.Direction = DMA_PERIPH_TO_MEMORY;
-	hdma_adc.Init.PeriphInc = DMA_PINC_DISABLE;
-	hdma_adc.Init.MemInc = DMA_MINC_ENABLE;
-	hdma_adc.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
-	hdma_adc.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
-	hdma_adc.Init.Mode = DMA_CIRCULAR;
-	hdma_adc.Init.Priority = DMA_PRIORITY_HIGH;
-	HAL_DMA_Init(&hdma_adc);
+	// ADC prescaler: PCLK2/6 (~12 MHz)
+	RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_ADCPRE) | RCC_CFGR_ADCPRE_DIV6;
 
-	// DMA transfer complete/half-complete interrupt -> triggers FOC ISR
+	// DMA1 Channel1 for ADC1 (F103 uses DMA1_CH1 for ADC1)
+	DMA1_Channel1->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel1->CCR = 0;
+	DMA1_Channel1->CPAR = (uint32_t)&ADC1->DR;
+	DMA1_Channel1->CMAR = (uint32_t)&ADC_Value;
+	DMA1_Channel1->CNDTR = HW_ADC_CHANNELS;
+	DMA1_Channel1->CCR = DMA_CCR_MINC | DMA_CCR_PSIZE_0 | DMA_CCR_MSIZE_0 |
+						  DMA_CCR_CIRC | DMA_CCR_PL_1; // HalfWord, Circular, High priority
+	DMA1_Channel1->CCR |= DMA_CCR_EN;
+
+	// Enable DMA half-transfer or transfer-complete interrupt
 #if ADC_IND_CURR1 < 3 && ADC_IND_CURR2 < 3 && ADC_IND_CURR3 < 3
-	__HAL_DMA_ENABLE_IT(&hdma_adc, DMA_IT_HT);
+	DMA1_Channel1->CCR |= DMA_CCR_HTIE;
 #else
-	__HAL_DMA_ENABLE_IT(&hdma_adc, DMA_IT_TC);
+	DMA1_Channel1->CCR |= DMA_CCR_TCIE;
 #endif
-
 	HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 0);
 	HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 
-	// Configure ADC1 - regular conversions with external trigger from TIM2_CC2
-	ADC_HandleTypeDef hadc1 = {0};
-	hadc1.Instance = ADC1;
-	hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-	hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
-	hadc1.Init.ContinuousConvMode = DISABLE;
-	hadc1.Init.DiscontinuousConvMode = DISABLE;
-	hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_CC2;
-	hadc1.Init.NbrOfConversion = HW_ADC_NBR_CONV;
-	HAL_ADC_Init(&hadc1);
+	// ADC1+ADC2 dual regular simultaneous mode
+	ADC1->CR1 = (ADC1->CR1 & ~ADC_CR1_DUALMOD) | (ADC_CR1_DUALMOD_2 | ADC_CR1_DUALMOD_1); // Mode 6: regular simultaneous
+	ADC1->CR1 |= ADC_CR1_SCAN;
+	ADC1->CR2 = ADC_CR2_ADON | ADC_CR2_DMA | ADC_CR2_EXTTRIG | ADC_CR2_EXTSEL_1; // T2_CC2 trigger, DMA
+	ADC1->SQR1 = (ADC1->SQR1 & ~ADC_SQR1_L) | ((uint32_t)(HW_ADC_NBR_CONV - 1) << 20);
 
-	// Configure ADC2 - simultaneous mode (slave, no external trigger)
-	ADC_HandleTypeDef hadc2 = {0};
-	hadc2.Instance = ADC2;
-	hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-	hadc2.Init.ScanConvMode = ADC_SCAN_ENABLE;
-	hadc2.Init.ContinuousConvMode = DISABLE;
-	hadc2.Init.DiscontinuousConvMode = DISABLE;
-	hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-	hadc2.Init.NbrOfConversion = HW_ADC_NBR_CONV;
-	HAL_ADC_Init(&hadc2);
+	ADC2->CR1 |= ADC_CR1_SCAN;
+	ADC2->CR2 = ADC_CR2_ADON | ADC_CR2_EXTTRIG | ADC_CR2_EXTSEL; // SW trigger for slave
+	ADC2->SQR1 = (ADC2->SQR1 & ~ADC_SQR1_L) | ((uint32_t)(HW_ADC_NBR_CONV - 1) << 20);
 
-	// Enable dual mode: ADC1 + ADC2 simultaneous regular
-	// On F1, dual mode is configured via ADC1->CR1 DUALMOD bits
-	ADC_MultiModeTypeDef multimode = {0};
-	multimode.Mode = ADC_DUALMODE_REGSIMULT;
-	HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode);
-
-	// Enable internal temperature sensor / vrefint
+	// Enable temperature sensor / Vrefint
 	ADC1->CR2 |= ADC_CR2_TSVREFE;
 
 	hw_setup_adc_channels();
 
-	// Start DMA transfer for ADC1
-	HAL_DMA_Start(&hdma_adc, (uint32_t)&ADC1->DR, (uint32_t)&ADC_Value, HW_ADC_CHANNELS);
-	__HAL_LINKDMA(&hadc1, DMA_Handle, hdma_adc);
+	// Calibrate and enable ADCs
+	ADC1->CR2 |= ADC_CR2_ADON;
+	for (volatile int i = 0; i < 1000; i++);
+	ADC1->CR2 |= ADC_CR2_CAL; while (ADC1->CR2 & ADC_CR2_CAL);
 
-	// Enable ADC DMA request
-	ADC1->CR2 |= ADC_CR2_DMA;
-
-	// Enable ADCs
-	HAL_ADC_Start(&hadc2);
-	HAL_ADC_Start(&hadc1);
+	ADC2->CR2 |= ADC_CR2_ADON;
+	for (volatile int i = 0; i < 1000; i++);
+	ADC2->CR2 |= ADC_CR2_CAL; while (ADC2->CR2 & ADC_CR2_CAL);
 
 	timer_reinit((int)m_motor_1.m_conf->foc_f_zv);
 
@@ -508,7 +456,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 
 		// Wait for input voltage to rise above minimum voltage
 		while (mc_interface_get_input_voltage_filtered() < m_motor_1.m_conf->l_min_vin) {
-			osDelay(1);
+			chThdSleepMilliseconds(1);
 			if (UTILS_AGE_S(cal_start_time) >= cal_start_timeout) {
 				m_dccal_done = true;
 				break;
@@ -520,7 +468,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 			float v_in_last = mc_interface_get_input_voltage_filtered();
 			systime_t v_in_stable_time = chVTGetSystemTimeX();
 			while (UTILS_AGE_S(v_in_stable_time) < 2.0) {
-				osDelay(1);
+				chThdSleepMilliseconds(1);
 
 				float v_in_now = mc_interface_get_input_voltage_filtered();
 				if (fabsf(v_in_now - v_in_last) > 1.5) {
@@ -540,7 +488,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 			while ((mc_interface_get_fault() != FAULT_CODE_NONE) &&
 					(mc_interface_get_fault() != FAULT_CODE_OVER_TEMP_MOTOR)) {
 
-				osDelay(1);
+				chThdSleepMilliseconds(1);
 
 				if (UTILS_AGE_S(cal_start_time) >= cal_start_timeout) {
 					m_dccal_done = true;
@@ -584,37 +532,13 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 #endif
 	// Start threads
 	timer_thd_stop = false;
-	osThreadNew((osThreadFunc_t)timer_thread, NULL,
-		&(const osThreadAttr_t){
-			.name = "foc_timer",
-			.priority = osPriorityNormal,
-			.stack_mem = foc_timer_thread_stack,
-			.stack_size = sizeof(foc_timer_thread_stack),
-			.cb_mem = &foc_timer_thread_tcb,
-			.cb_size = sizeof(foc_timer_thread_tcb)
-		});
+	chThdCreateStatic(timer_thread_wa, sizeof(timer_thread_wa), NORMALPRIO, timer_thread, NULL);
 
 	hfi_thd_stop = false;
-	osThreadNew((osThreadFunc_t)hfi_thread, NULL,
-		&(const osThreadAttr_t){
-			.name = "foc_hfi",
-			.priority = osPriorityNormal,
-			.stack_mem = foc_hfi_thread_stack,
-			.stack_size = sizeof(foc_hfi_thread_stack),
-			.cb_mem = &foc_hfi_thread_tcb,
-			.cb_size = sizeof(foc_hfi_thread_tcb)
-		});
+	chThdCreateStatic(hfi_thread_wa, sizeof(hfi_thread_wa), NORMALPRIO, hfi_thread, NULL);
 
 	pid_thd_stop = false;
-	osThreadNew((osThreadFunc_t)pid_thread, NULL,
-		&(const osThreadAttr_t){
-			.name = "foc_pid",
-			.priority = osPriorityNormal,
-			.stack_mem = foc_pid_thread_stack,
-			.stack_size = sizeof(foc_pid_thread_stack),
-			.cb_mem = &foc_pid_thread_tcb,
-			.cb_size = sizeof(foc_pid_thread_tcb)
-		});
+	chThdCreateStatic(pid_thread_wa, sizeof(pid_thread_wa), NORMALPRIO, pid_thread, NULL);
 
 	// Check if the system has resumed from IWDG reset and generate fault if it has. This can be used to
 	// tell if some frozen thread caused a watchdog reset. Note that this also will trigger after running
@@ -641,25 +565,25 @@ void mcpwm_foc_deinit(void) {
 
 	timer_thd_stop = true;
 	while (timer_thd_stop) {
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 	}
 
 	hfi_thd_stop = true;
 	while (hfi_thd_stop) {
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 	}
 
 	pid_thd_stop = true;
 	while (pid_thd_stop) {
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 	}
 
-	HAL_TIM_PWM_DeInit(&htim1);
-	HAL_TIM_PWM_DeInit(&htim2);
-	HAL_TIM_PWM_DeInit(&htim8);
-	HAL_ADC_DeInit(&(ADC_HandleTypeDef){.Instance = ADC1});
-	HAL_ADC_DeInit(&(ADC_HandleTypeDef){.Instance = ADC2});
-	HAL_DMA_DeInit(&hdma_adc);
+	f1_tim_deinit(TIM1);
+	f1_tim_deinit(TIM2);
+	f1_tim_deinit(TIM8);
+	f1_adc_deinit();
+	f1_dma_ch_deinit(DMA1_Channel1);
+	HAL_NVIC_DisableIRQ(ADC1_2_IRQn);
 	HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
 }
 
@@ -1581,7 +1505,7 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			osDelay(1);
+			chThdSleepMilliseconds(1);
 		}
 
 		cnt++;
@@ -1602,7 +1526,7 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 		if (fault != FAULT_CODE_NONE) {
 			goto exit_encoder_detect;
 		}
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 	}
 
 	if (print) {
@@ -1610,7 +1534,7 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 	}
 
 	// Inverted and ratio
-	osDelay(1000);
+	chThdSleepMilliseconds(1000);
 
 	const int it_rat = 30;
 	float s_sum = 0.0;
@@ -1627,11 +1551,11 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			osDelay(1);
+			chThdSleepMilliseconds(1);
 		}
 
 		utils_norm_angle_rad((float*)&motor->m_phase_now_override);
-		osDelay(300);
+		chThdSleepMilliseconds(300);
 		timeout_reset();
 		float diff = utils_angle_difference_rad(motor->m_phase_now_encoder, phase_old);
 
@@ -1660,10 +1584,10 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			osDelay(1);
+			chThdSleepMilliseconds(1);
 		}
 		utils_norm_angle_rad((float*)&motor->m_phase_now_override);
-		osDelay(300);
+		chThdSleepMilliseconds(300);
 		timeout_reset();
 		float diff = utils_angle_difference_rad(phase_old, motor->m_phase_now_encoder);
 
@@ -1700,7 +1624,7 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 		if (fault != FAULT_CODE_NONE) {
 			goto exit_encoder_detect;
 		}
-		osDelay(2);
+		chThdSleepMilliseconds(2);
 	}
 
 	if (print) {
@@ -1722,10 +1646,10 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			osDelay(4);
+			chThdSleepMilliseconds(4);
 		}
 
-		osDelay(100);
+		chThdSleepMilliseconds(100);
 		timeout_reset();
 
 		float angle_diff = utils_angle_difference_rad(motor->m_phase_now_encoder, motor->m_phase_now_override);
@@ -1749,10 +1673,10 @@ int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ra
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_encoder_detect;
 			}
-			osDelay(4);
+			chThdSleepMilliseconds(4);
 		}
 
-		osDelay(100);
+		chThdSleepMilliseconds(100);
 		timeout_reset();
 
 		float angle_diff = utils_angle_difference_rad(motor->m_phase_now_encoder, motor->m_phase_now_override);
@@ -1857,11 +1781,11 @@ int mcpwm_foc_measure_resistance(float current, int samples, bool stop_after, fl
 
 			return fault;
 		}
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 	}
 
 	// Wait for the current to rise and the motor to lock.
-	osDelay(50);
+	chThdSleepMilliseconds(50);
 
 	// Sample
 	motor->m_samples.avg_current_tot = 0.0;
@@ -1870,7 +1794,7 @@ int mcpwm_foc_measure_resistance(float current, int samples, bool stop_after, fl
 
 	int cnt = 0;
 	while (motor->m_samples.sample_num < samples) {
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 		cnt++;
 		// Timeout
 		if (cnt > 10000) {
@@ -1968,15 +1892,15 @@ int mcpwm_foc_measure_inductance(float duty, int samples, float *curr, float *ld
 
 	mcpwm_foc_set_configuration(motor->m_conf);
 
-	osDelay(1);
+	chThdSleepMilliseconds(1);
 
 	timeout_reset();
 	mcpwm_foc_set_duty(0.0);
-	osDelay(1);
+	chThdSleepMilliseconds(1);
 
 	int ready_cnt = 0;
 	while (!motor->m_hfi.ready) {
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 		ready_cnt++;
 		if (ready_cnt > 100) {
 			break;
@@ -2022,7 +1946,7 @@ int mcpwm_foc_measure_inductance(float duty, int samples, float *curr, float *ld
 			return fault;
 		}
 
-		osDelay(10);
+		chThdSleepMilliseconds(10);
 
 		float real_bin0, imag_bin0;
 		float real_bin2, imag_bin2;
@@ -2175,14 +2099,14 @@ bool mcpwm_foc_beep(float freq, float time, float voltage) {
 
 	mcpwm_foc_set_configuration(motor->m_conf);
 
-	osDelay(1);
+	chThdSleepMilliseconds(1);
 
 	timeout_reset();
 	mcpwm_foc_set_duty(0.0);
 
 	int ms_sleep = (time * 1000.0) - 1;
 	if (ms_sleep > 0) {
-		osDelay(ms_sleep);
+		chThdSleepMilliseconds(ms_sleep);
 	}
 
 	mcpwm_foc_set_current(0.0);
@@ -2366,7 +2290,7 @@ int mcpwm_foc_measure_res_ind(float *res, float *ind, float *ld_lq_diff) {
 	if (fault == FAULT_CODE_NONE && *res != 0.0) {
 		motor->m_conf->foc_motor_r = *res;
 		mcpwm_foc_set_current(0.0);
-		osDelay(10);
+		chThdSleepMilliseconds(10);
 		fault = mcpwm_foc_measure_inductance_current(i_last, 200, 0, ld_lq_diff, ind);
 	}
 
@@ -2427,7 +2351,7 @@ int mcpwm_foc_hall_detect(float current, uint8_t *hall_table, bool *result) {
 		if (fault != FAULT_CODE_NONE) {
 			goto exit_hall_detect;
 		}
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 	}
 
 	float sin_hall[8];
@@ -2445,7 +2369,7 @@ int mcpwm_foc_hall_detect(float current, uint8_t *hall_table, bool *result) {
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_hall_detect;
 			}
-			osDelay(5);
+			chThdSleepMilliseconds(5);
 
 			int hall = utils_read_hall(motor != &m_motor_1, motor->m_conf->m_hall_extra_samples);
 			float s, c;
@@ -2464,7 +2388,7 @@ int mcpwm_foc_hall_detect(float current, uint8_t *hall_table, bool *result) {
 			if (fault != FAULT_CODE_NONE) {
 				goto exit_hall_detect;
 			}
-			osDelay(5);
+			chThdSleepMilliseconds(5);
 
 			int hall = utils_read_hall(motor != &m_motor_1, motor->m_conf->m_hall_extra_samples);
 			float s, c;
@@ -2522,14 +2446,14 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Wait max 5 seconds for DRV-fault to go away
 	int cnt = 0;
 	while(IS_DRV_FAULT()){
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 		cnt++;
 		if (cnt > 5000) {
 			return -1;
 		}
 	};
 
-	osDelay(1000);
+	chThdSleepMilliseconds(1000);
 
 	// Disable timeout
 	systime_t tout = timeout_get_timeout_msec();
@@ -2552,10 +2476,10 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Start PWM on phase 1
 	stop_pwm_hw((motor_all_state_t*)&m_motor_1);
 	PHASE_FILTER_ON();
-	LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
-	LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
-	LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1N);
-	LL_TIM_GenerateEvent_COM(TIM1);
+	TIM_SelectOCxM(TIM1, TIM_Channel_1, TIM_OCMode_PWM1);
+	TIM_CCxCmd(TIM1, TIM_Channel_1, TIM_CCx_Enable);
+	TIM_CCxNCmd(TIM1, TIM_Channel_1, TIM_CCxN_Enable);
+	TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
 
 #ifdef HW_HAS_DUAL_MOTORS
 	float current_sum_m2[3] = {0.0, 0.0, 0.0};
@@ -2564,10 +2488,10 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 
 	stop_pwm_hw((motor_all_state_t*)&m_motor_2);
 	PHASE_FILTER_ON_M2();
-	LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
-	LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
-	LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
-	LL_TIM_GenerateEvent_COM(TIM8);
+	TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_OCMode_PWM1);
+	TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
+	TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
+	TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
 #endif
 
 	chThdSleep(1);
@@ -2675,7 +2599,7 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Measure undriven offsets
 
 	if (cal_undriven) {
-		osDelay(10);
+		chThdSleepMilliseconds(10);
 
 		voltage_sum[0] = 0.0; voltage_sum[1] = 0.0; voltage_sum[2] = 0.0;
 #ifdef HW_HAS_DUAL_MOTORS
@@ -2735,14 +2659,14 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Wait max 5 seconds for DRV-fault to go away
 	int cnt = 0;
 	while(IS_DRV_FAULT()){
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 		cnt++;
 		if (cnt > 5000) {
 			return -1;
 		}
 	};
 
-	osDelay(1000);
+	chThdSleepMilliseconds(1000);
 
 	// Disable timeout
 	systime_t tout = timeout_get_timeout_msec();
@@ -2806,7 +2730,7 @@ int mcpwm_foc_dc_cal(bool cal_undriven) {
 	// Measure undriven offsets
 
 	if (cal_undriven) {
-		osDelay(10);
+		chThdSleepMilliseconds(10);
 
 		voltage_sum[0] = 0.0; voltage_sum[1] = 0.0; voltage_sum[2] = 0.0;
 
@@ -2876,8 +2800,8 @@ void mcpwm_foc_print_state(void) {
 void mcpwm_foc_tim_sample_int_handler(void) {
 	if (m_init_done) {
 		// Generate COM event here for synchronization
-		LL_TIM_GenerateEvent_COM(TIM1);
-		LL_TIM_GenerateEvent_COM(TIM8);
+		TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
+		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
 
 		virtual_motor_int_handler(
 				m_motor_1.m_motor_state.v_alpha,
@@ -3032,7 +2956,7 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 
 #ifdef AD2S1205_SAMPLE_GPIO
 	// force a position sample in the AD2S1205 resolver IC (falling edge)
-	hal_gpio_clear(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);
+	palClearPad(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);
 #endif
 
 	float curr0 = 0;
@@ -3270,7 +3194,8 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 	volatile bool encoder_is_being_used = false;
 
 	if (virtual_motor_is_connected()) {
-		if (conf_now->foc_sensor_mode == FOC_SENSOR_MODE_ENCODER ) {
+		if (conf_now->foc_sensor_mode == FOC_SENSOR_MODE_ENCODER ||
+				conf_now->foc_sensor_mode == FOC_SENSOR_MODE_ENCODER_AB) {
 			enc_ang = virtual_motor_get_angle_deg();
 			encoder_is_being_used = true;
 		}
@@ -3499,6 +3424,44 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 					id_set_tmp = 0.0;
 				}
 				break;
+
+			case FOC_SENSOR_MODE_ENCODER_AB:
+				// AB encoder without index pin. Sync encoder to observer at sensorless ERPM
+				// to establish and continuously correct the absolute position.
+				if (fabsf(RADPS2RPM_f(motor_now->m_speed_est_fast)) >= conf_now->foc_sl_erpm) {
+					float obs_deg = RAD2DEG_f(motor_now->m_phase_now_observer);
+					float enc_deg = (obs_deg + conf_now->foc_encoder_offset) / conf_now->foc_encoder_ratio;
+					if (conf_now->foc_encoder_inverted) {
+						enc_deg = 360.0 - enc_deg;
+					}
+					encoder_set_deg(enc_deg);
+				}
+
+				if (encoder_index_found() || virtual_motor_is_connected()) {
+					state_now->phase = foc_correct_encoder(
+							motor_now->m_phase_now_observer,
+							motor_now->m_phase_now_encoder,
+							motor_now->m_speed_est_fast,
+							conf_now->foc_sl_erpm,
+							motor_now);
+				} else if (motor_now->m_phase_observer_override) {
+					// Open-loop startup assist before first sync (same as sensorless)
+					state_now->phase = motor_now->m_phase_now_observer_override;
+					motor_now->m_observer_state.x1 = motor_now->m_observer_x1_override;
+					motor_now->m_observer_state.x2 = motor_now->m_observer_x2_override;
+					iq_set_tmp += conf_now->foc_sl_openloop_boost_q * SIGN(iq_set_tmp);
+					if (conf_now->foc_sl_openloop_max_q > conf_now->cc_min_current) {
+						utils_truncate_number_abs(&iq_set_tmp, conf_now->foc_sl_openloop_max_q);
+					}
+				} else {
+					// Use observer until first sync at sensorless ERPM
+					state_now->phase = motor_now->m_phase_now_observer;
+				}
+
+				if (!motor_now->m_phase_override && motor_now->m_control_mode != CONTROL_MODE_OPENLOOP_PHASE) {
+					id_set_tmp = 0.0;
+				}
+				break;
 			case FOC_SENSOR_MODE_HALL:
 				state_now->phase = foc_correct_hall(motor_now->m_phase_now_observer, dt, motor_now,
 						utils_read_hall(motor_now != &m_motor_1, conf_now->m_hall_extra_samples));
@@ -3696,6 +3659,7 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 		{
 			switch (conf_now->foc_sensor_mode) {
 			case FOC_SENSOR_MODE_ENCODER:
+			case FOC_SENSOR_MODE_ENCODER_AB:
 				state_now->phase = foc_correct_encoder(
 						motor_now->m_phase_now_observer,
 						motor_now->m_phase_now_encoder,
@@ -3887,7 +3851,7 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 
 #ifdef AD2S1205_SAMPLE_GPIO
 	// Release sample in the AD2S1205 resolver IC.
-	hal_gpio_set(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);
+	palSetPad(AD2S1205_SAMPLE_GPIO, AD2S1205_SAMPLE_PIN);
 #endif
 
 	FOC_PROFILE_LINE();
@@ -4029,7 +3993,8 @@ static void timer_update(motor_all_state_t *motor, float dt) {
 	utils_truncate_number_abs(&openloop_rpm_max, conf_now->foc_openloop_rpm);
 
 	float openloop_rpm = openloop_rpm_max;
-	if (conf_now->foc_sensor_mode != FOC_SENSOR_MODE_ENCODER) {
+	if (conf_now->foc_sensor_mode != FOC_SENSOR_MODE_ENCODER &&
+			conf_now->foc_sensor_mode != FOC_SENSOR_MODE_ENCODER_AB) {
 		float time_fwd = t_lock + t_ramp + t_const - motor->m_min_rpm_timer;
 		if (time_fwd < t_lock) {
 			openloop_rpm = 0.0;
@@ -4162,7 +4127,7 @@ static THD_FUNCTION(timer_thread, arg) {
 
 		if (timer_thd_stop) {
 			timer_thd_stop = false;
-			return;
+			return NULL;
 		}
 
 		timer_update((motor_all_state_t*)&m_motor_1, dt);
@@ -4183,7 +4148,7 @@ static THD_FUNCTION(timer_thread, arg) {
 		}
 #endif
 
-		osDelay(1);
+		chThdSleepMilliseconds(1);
 	}
 }
 
@@ -4457,7 +4422,7 @@ static THD_FUNCTION(hfi_thread, arg) {
 	for(;;) {
 		if (hfi_thd_stop) {
 			hfi_thd_stop = false;
-			return;
+			return NULL;
 		}
 
 		float dt = timer_seconds_elapsed_since(t_last);
@@ -4482,7 +4447,7 @@ static THD_FUNCTION(pid_thread, arg) {
 	for(;;) {
 		if (pid_thd_stop) {
 			pid_thd_stop = false;
-			return;
+			return NULL;
 		}
 
 		switch (m_motor_1.m_conf->sp_pid_loop_rate) {
@@ -5189,35 +5154,34 @@ static void stop_pwm_hw(motor_all_state_t *motor) {
 	motor->m_iq_set = 0.0;
 
 	if (motor == &m_motor_1) {
-		// Force inactive on all channels, enable CH, disable CHN
-		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
-		LL_TIM_CC_DisableChannel(TIM1, LL_TIM_CHANNEL_CH1N);
+		TIM_SelectOCxM(TIM1, TIM_Channel_1, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM1, TIM_Channel_1, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM1, TIM_Channel_1, TIM_CCxN_Disable);
 
-		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2);
-		LL_TIM_CC_DisableChannel(TIM1, LL_TIM_CHANNEL_CH2N);
+		TIM_SelectOCxM(TIM1, TIM_Channel_2, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM1, TIM_Channel_2, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM1, TIM_Channel_2, TIM_CCxN_Disable);
 
-		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3);
-		LL_TIM_CC_DisableChannel(TIM1, LL_TIM_CHANNEL_CH3N);
+		TIM_SelectOCxM(TIM1, TIM_Channel_3, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM1, TIM_Channel_3, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM1, TIM_Channel_3, TIM_CCxN_Disable);
 
-		LL_TIM_GenerateEvent_COM(TIM1);
+		TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
 
 #ifdef HW_HAS_DUAL_PARALLEL
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
-		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Disable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
-		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Disable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
-		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Disable);
 
-		LL_TIM_GenerateEvent_COM(TIM8);
+		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
 #endif
 
 #ifdef HW_HAS_DRV8313
@@ -5225,19 +5189,19 @@ static void stop_pwm_hw(motor_all_state_t *motor) {
 #endif
 		PHASE_FILTER_OFF();
 	} else {
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
-		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Disable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
-		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Disable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
-		LL_TIM_CC_DisableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Disable);
 
-		LL_TIM_GenerateEvent_COM(TIM8);
+		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
 
 #ifdef HW_HAS_DRV8313_2
 		DISABLE_BR_2();
@@ -5251,30 +5215,30 @@ static void stop_pwm_hw(motor_all_state_t *motor) {
 
 static void start_pwm_hw(motor_all_state_t *motor) {
 	if (motor == &m_motor_1) {
-		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1N);
+		TIM_SelectOCxM(TIM1, TIM_Channel_1, TIM_OCMode_PWM1);
+		TIM_CCxCmd(TIM1, TIM_Channel_1, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM1, TIM_Channel_1, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_PWM1);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2N);
+		TIM_SelectOCxM(TIM1, TIM_Channel_2, TIM_OCMode_PWM1);
+		TIM_CCxCmd(TIM1, TIM_Channel_2, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM1, TIM_Channel_2, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_PWM1);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3N);
+		TIM_SelectOCxM(TIM1, TIM_Channel_3, TIM_OCMode_PWM1);
+		TIM_CCxCmd(TIM1, TIM_Channel_3, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM1, TIM_Channel_3, TIM_CCxN_Enable);
 
 #ifdef HW_HAS_DUAL_PARALLEL
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_OCMode_PWM1);
+		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_PWM1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_OCMode_PWM1);
+		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_PWM1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_OCMode_PWM1);
+		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Enable);
 
 		PHASE_FILTER_ON_M2();
 
@@ -5284,24 +5248,24 @@ static void start_pwm_hw(motor_all_state_t *motor) {
 #endif
 
 		// Generate COM event in ADC interrupt to get better synchronization
-		//	LL_TIM_GenerateEvent_COM(TIM1);
+		//	TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
 
 #ifdef HW_HAS_DRV8313
 		ENABLE_BR();
 #endif
 		PHASE_FILTER_ON();
 	} else {
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_PWM1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_OCMode_PWM1);
+		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_PWM1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_OCMode_PWM1);
+		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_PWM1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_OCMode_PWM1);
+		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Enable);
 
 #ifdef HW_HAS_DRV8313_2
 		ENABLE_BR_2();
@@ -5314,19 +5278,19 @@ static void start_pwm_hw(motor_all_state_t *motor) {
 
 static void full_brake_hw(motor_all_state_t *motor) {
 	if (motor == &m_motor_1) {
-		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1N);
+		TIM_SelectOCxM(TIM1, TIM_Channel_1, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM1, TIM_Channel_1, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM1, TIM_Channel_1, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2N);
+		TIM_SelectOCxM(TIM1, TIM_Channel_2, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM1, TIM_Channel_2, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM1, TIM_Channel_2, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM1, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3);
-		LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH3N);
+		TIM_SelectOCxM(TIM1, TIM_Channel_3, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM1, TIM_Channel_3, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM1, TIM_Channel_3, TIM_CCxN_Enable);
 
-		LL_TIM_GenerateEvent_COM(TIM1);
+		TIM_GenerateEvent(TIM1, TIM_EventSource_COM);
 		PHASE_FILTER_ON();
 
 #ifdef HW_HAS_DRV8313
@@ -5334,19 +5298,19 @@ static void full_brake_hw(motor_all_state_t *motor) {
 #endif
 
 #ifdef HW_HAS_DUAL_PARALLEL
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Enable);
 
-		LL_TIM_GenerateEvent_COM(TIM8);
+		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
 		PHASE_FILTER_ON_M2();
 
 #ifdef HW_HAS_DRV8313_2
@@ -5354,19 +5318,19 @@ static void full_brake_hw(motor_all_state_t *motor) {
 #endif
 #endif
 	} else {
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH1N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_1, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_1, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_1, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH2N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_2, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_2, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_2, TIM_CCxN_Enable);
 
-		LL_TIM_OC_SetMode(TIM8, LL_TIM_CHANNEL_CH3, LL_TIM_OCMODE_FORCED_INACTIVE);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3);
-		LL_TIM_CC_EnableChannel(TIM8, LL_TIM_CHANNEL_CH3N);
+		TIM_SelectOCxM(TIM8, TIM_Channel_3, TIM_ForcedAction_InActive);
+		TIM_CCxCmd(TIM8, TIM_Channel_3, TIM_CCx_Enable);
+		TIM_CCxNCmd(TIM8, TIM_Channel_3, TIM_CCxN_Enable);
 
-		LL_TIM_GenerateEvent_COM(TIM8);
+		TIM_GenerateEvent(TIM8, TIM_EventSource_COM);
 		PHASE_FILTER_ON_M2();
 
 #ifdef HW_HAS_DRV8313_2
@@ -5413,127 +5377,3 @@ static void terminal_plot_hfi(int argc, const char **argv) {
 		commands_printf("This command requires one argument.\n");
 	}
 }
-
-// ===== HAL CALLBACKS - ADC & DMA INTERRUPT HANDLERS =====
-
-/**
- * HAL ADC Conversion Complete Callback
- * 
- * Called by HAL_ADC_IRQHandler when ADC injected conversion finishes.
- * This alternative path (injected mode) provides microsecond-level latency
- * for synchronous current sampling with PWM duty updates.
- * 
- * Note: When using DMA mode (current default), this is NOT called.
- *       Use HAL_DMA_XferCpltCallback instead (see irq_handlers.c).
- */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
-    if (hadc->Instance == ADC1) {
-        // Call motor FOC ISR to process ADC samples and update PWM
-        // This ensures synchronous current-to-duty update (<2 µs latency)
-        mcpwm_foc_adc_int_handler(NULL, 0);
-    }
-}
-
-/**
- * HAL ADC Injected Conversion Complete Callback
- * 
- * For future optimization: Using injected ADC mode for dual motors
- * can reduce interrupt latency by eliminating DMA overhead.
- */
-void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
-    if (hadc->Instance == ADC1) {
-        // Read injected conversion results from ADC1->JDR (1, 2, 3)
-        // Current samples: IU, IV, IW
-        mcpwm_foc_adc_int_handler(NULL, 0);
-    }
-}
-
-/**
- * HAL ADC Error Callback
- * 
- * Triggered on ADC analog watchdog, overrun, or other faults.
- * Graceful shutdown to prevent undefined motor behavior.
- */
-void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc) {
-    if (hadc->Instance == ADC1) {
-        // Emergency motor shutdown on ADC failure
-        extern void mc_interface_fault_stop(mc_fault_code fault, bool is_second_motor, bool is_second_motor_selected);
-        mc_interface_fault_stop(FAULT_CODE_HW_FAULT, false, false);
-    }
-}
-
-/**
- * Verification function for dual-motor hardware synchronization
- * 
- * Checks that TIM1 (M1) and TIM8 (M2) are phase-locked at 180 degrees.
- * Call this in hw_init() or diagnostic routines.
- */
-void hw_verify_dual_motor_sync(void) {
-#ifdef HW_HAS_DUAL_MOTORS
-    // Expected: TIM8 lags TIM1 by exactly 2250 counts (180° of 4500 period)
-    uint16_t tim1_cnt = TIM1->CNT;
-    uint16_t tim8_cnt = TIM8->CNT;
-    int16_t phase_diff = tim8_cnt - tim1_cnt;
-    
-    // Allow ±100 count tolerance (1.39° @ 72 MHz, ~19 µs)
-    if (phase_diff < (2250 - 100) || phase_diff > (2250 + 100)) {
-        commands_printf("ERROR: TIM8 phase out of sync (expected 2250, got %d)\n", tim8_cnt);
-        // Note: Could assert here for debugging, but graceful degradation preferred
-    } else {
-        commands_printf("✓ Dual motor phase locked (TIM1=%u, TIM8=%u, phase_diff=%d)\n", 
-            tim1_cnt, tim8_cnt, phase_diff);
-    }
-#endif
-}
-
-/**
- * Motor ISR latency measurement function
- * 
- * Captures cycle-count latency from ADC sample completion to PWM duty write.
- * Used for performance validation - target: <144 cycles @ 72 MHz = <2 µs
- */
-volatile uint32_t g_motor_isr_latency_cycles = 0;
-volatile uint32_t g_motor_isr_latency_min = UINT32_MAX;
-volatile uint32_t g_motor_isr_latency_max = 0;
-
-void motor_isr_latency_start(void) {
-    // Enable DWT cycle counter if not already enabled
-    if (!(CoreDebug->DEMCR & CoreDebug_DEMCR_TRCENA_Msk)) {
-        CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-    }
-    if (!(DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk)) {
-        DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-    }
-}
-
-void motor_isr_latency_update(uint32_t start_cycles) {
-    uint32_t end_cycles = DWT->CYCCNT;
-    uint32_t latency = end_cycles - start_cycles;
-    
-    if (latency < g_motor_isr_latency_min) {
-        g_motor_isr_latency_min = latency;
-    }
-    if (latency > g_motor_isr_latency_max) {
-        g_motor_isr_latency_max = latency;
-    }
-    g_motor_isr_latency_cycles = latency;
-}
-
-void motor_isr_latency_report(void) {
-    float min_us = g_motor_isr_latency_min / 72.0;  // 72 MHz clock
-    float max_us = g_motor_isr_latency_max / 72.0;
-    float cur_us = g_motor_isr_latency_cycles / 72.0;
-    
-    commands_printf("Motor ISR Latency (cycles @ 72 MHz):\n");
-    commands_printf("  Min: %u cycles (%.2f µs)\n", g_motor_isr_latency_min, min_us);
-    commands_printf("  Max: %u cycles (%.2f µs)\n", g_motor_isr_latency_max, max_us);
-    commands_printf("  Current: %u cycles (%.2f µs)\n", g_motor_isr_latency_cycles, cur_us);
-    
-    if (g_motor_isr_latency_max < 200) {  // <2.78 µs
-        commands_printf("✓ PASS: ISR latency within target (<200 cycles)\n");
-    } else {
-        commands_printf("✗ WARNING: ISR latency exceeds target\n");
-    }
-}
-
-
